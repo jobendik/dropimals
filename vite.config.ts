@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { defineConfig } from 'vite';
 
 // Set this to your GitHub repository name (e.g. 'dropimals')

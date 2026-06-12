@@ -44,11 +44,12 @@ function quitToMenu(): void {
   commitScore();
   state.screen = 'menu';
   cgGameplayStop();
+  startMusic('menu');
 }
 
 function onPointerDown(e: PointerEvent): void {
   const p = toGame(e.clientX, e.clientY);
-  startMusic(); // needs a user gesture; no-op afterwards
+  startMusic(state.screen === 'play' ? 'game' : 'menu'); // boot audio on first gesture
   downOnButton = false;
 
   // Any press on a non-play screen must not leak into the play screen as a
@@ -56,7 +57,7 @@ function onPointerDown(e: PointerEvent): void {
   switch (state.screen) {
     case 'menu':
       downOnButton = true;
-      if (hit(p, BTN.play)) { sfxClick(); startRun(); }
+      if (hit(p, BTN.play)) { sfxClick(); startRun(); startMusic('game'); }
       else if (hit(p, BTN.dex)) { sfxClick(); state.screen = 'dex'; }
       else if (hit(p, BTN.soundMenu)) { sfxClick(); toggleMute(); }
       else if (hit(p, BTN.musicMenu)) { sfxClick(); toggleMusic(); }
@@ -70,7 +71,7 @@ function onPointerDown(e: PointerEvent): void {
     case 'paused':
       downOnButton = true;
       if (hit(p, BTN.resume)) { sfxClick(); resumeGame(); }
-      else if (hit(p, BTN.restart)) { sfxClick(); startRun(); }
+      else if (hit(p, BTN.restart)) { sfxClick(); startRun(); startMusic('game'); }
       else if (hit(p, BTN.toMenu)) { sfxClick(); quitToMenu(); }
       else if (hit(p, BTN.soundPause)) { sfxClick(); toggleMute(); }
       else if (hit(p, BTN.musicPause)) { sfxClick(); toggleMusic(); }
@@ -79,7 +80,7 @@ function onPointerDown(e: PointerEvent): void {
     case 'over':
       downOnButton = true;
       if (!state.overPanelReady) return;
-      if (hit(p, BTN.again)) { sfxClick(); startRun(); }
+      if (hit(p, BTN.again)) { sfxClick(); startRun(); startMusic('game'); }
       else if (hit(p, BTN.overMenu)) { sfxClick(); quitToMenu(); }
       return;
 
@@ -125,10 +126,9 @@ function onKeyDown(e: KeyboardEvent): void {
   } else if (state.screen === 'paused' && (e.key === 'Escape' || e.key === 'p')) {
     resumeGame();
   } else if (state.screen === 'menu' && (e.key === ' ' || e.key === 'Enter')) {
-    startMusic();
-    startRun();
+    startRun(); startMusic('game');
   } else if (state.screen === 'over' && state.overPanelReady && (e.key === ' ' || e.key === 'Enter')) {
-    startRun();
+    startRun(); startMusic('game');
   }
 }
 

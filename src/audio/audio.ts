@@ -1,10 +1,9 @@
+/// <reference types="vite/client" />
 import { state } from '../state';
 import { saveProfile } from '../utils/storage';
 
 let master: GainNode | null = null;
 let musicGain: GainNode | null = null;
-let musicTimer: number | null = null;
-let musicStep = 0;
 
 function getCtx(): AudioContext | null {
   try {
@@ -161,42 +160,59 @@ export function sfxWarning(): void {
   tone({ freq: 740, dur: 0.09, type: 'square', vol: 0.022 });
 }
 
-// ── Generative background music ─────────────────────────────────────────────
-// A soft pad + sparse pentatonic plucks. Cheap, loopless, never repeats
-// exactly. Runs through its own gain node so it can be muted separately.
+// ── Background music (real audio files) ─────────────────────────────────────
+// HTMLAudioElements routed through musicGain so the mute toggle still works.
+// Each element is connected to the AudioContext only once (createMediaElementSource
+// can only be called once per element).
 
-const CHORDS = [
-  [130.81, 196.0, 261.63, 329.63],  // C
-  [110.0, 164.81, 220.0, 261.63],   // Am
-  [87.31, 174.61, 261.63, 349.23],  // F
-  [98.0, 196.0, 246.94, 293.66],    // G
-];
+let currentTrack: 'menu' | 'game' | null = null;
+let menuEl: HTMLAudioElement | null = null;
+let gameEl: HTMLAudioElement | null = null;
+let menuSrc: MediaElementAudioSourceNode | null = null;
+let gameSrc: MediaElementAudioSourceNode | null = null;
 
-function musicTick(): void {
-  const ctx = getCtx();
-  if (!ctx || !musicGain || state.profile.musicMuted) return;
-
-  const chord = CHORDS[musicStep % CHORDS.length];
-  for (const f of chord) {
-    tone({ freq: f, dur: 3.6, type: 'sine', vol: 0.016, attack: 1.2, out: musicGain });
-    tone({ freq: f * 2.003, dur: 3.6, type: 'sine', vol: 0.006, attack: 1.4, out: musicGain });
-  }
-
-  // Sparse melody plucks on top, denser during fever
-  const plucks = state.fever > 0 ? 4 : 2;
-  for (let i = 0; i < plucks; i++) {
-    if (Math.random() < 0.65) {
-      const n = PENTA[Math.floor(Math.random() * 5) + (state.fever > 0 ? 4 : 2)];
-      tone({ freq: n, dur: 0.5, type: 'triangle', vol: 0.014, delay: 0.4 + i * 0.9, out: musicGain });
+function getTrackEl(track: 'menu' | 'game'): HTMLAudioElement {
+  if (track === 'menu') {
+    if (!menuEl) {
+      menuEl = new Audio(import.meta.env.BASE_URL + 'audio/main_menu.mp3');
+      menuEl.loop = true;
     }
+    return menuEl;
   }
-  musicStep++;
+  if (!gameEl) {
+    gameEl = new Audio(import.meta.env.BASE_URL + 'audio/gameplay.mp3');
+    gameEl.loop = true;
+  }
+  return gameEl;
 }
 
-/** Start the music scheduler. Safe to call repeatedly; needs a user gesture first. */
-export function startMusic(): void {
-  if (musicTimer !== null) return;
-  if (!getCtx()) return;
-  musicTick();
-  musicTimer = window.setInterval(musicTick, 3800);
+function connectTrack(track: 'menu' | 'game', ctx: AudioContext): void {
+  if (track === 'menu' && !menuSrc && menuEl) {
+    menuSrc = ctx.createMediaElementSource(menuEl);
+    menuSrc.connect(musicGain!);
+  } else if (track === 'game' && !gameSrc && gameEl) {
+    gameSrc = ctx.createMediaElementSource(gameEl);
+    gameSrc.connect(musicGain!);
+  }
+}
+
+export function startMusic(track: 'menu' | 'game'): void {
+  if (currentTrack === track) return;
+  const ctx = getCtx();
+  if (!ctx || !musicGain) return;
+
+  // Stop the other track
+  menuEl?.pause();
+  gameEl?.pause();
+  currentTrack = track;
+
+  const el = getTrackEl(track);
+  connectTrack(track, ctx);
+  el.play().catch(() => { /* autoplay blocked — will retry on next gesture */ });
+}
+
+export function stopMusic(): void {
+  menuEl?.pause();
+  gameEl?.pause();
+  currentTrack = null;
 }

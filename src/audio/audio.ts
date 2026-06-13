@@ -1,9 +1,13 @@
 /// <reference types="vite/client" />
 import { state } from '../state';
 import { saveProfile } from '../utils/storage';
+import { MAX_TIER } from '../data/dropimals';
 
 let master: GainNode | null = null;
 let musicGain: GainNode | null = null;
+
+// Background music sits at half volume so the SFX read clearly over it.
+const MUSIC_VOLUME = 0.5;
 
 function getCtx(): AudioContext | null {
   try {
@@ -16,8 +20,10 @@ function getCtx(): AudioContext | null {
       master.connect(state.audioCtx.destination);
 
       musicGain = state.audioCtx.createGain();
-      musicGain.gain.value = state.profile.musicMuted ? 0 : 1;
+      musicGain.gain.value = state.profile.musicMuted ? 0 : MUSIC_VOLUME;
       musicGain.connect(master);
+
+      loadSamples(state.audioCtx);
     }
     if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
     return state.audioCtx;
@@ -34,7 +40,7 @@ export function toggleMute(): void {
 
 export function toggleMusic(): void {
   state.profile.musicMuted = !state.profile.musicMuted;
-  if (musicGain) musicGain.gain.value = state.profile.musicMuted ? 0 : 1;
+  if (musicGain) musicGain.gain.value = state.profile.musicMuted ? 0 : MUSIC_VOLUME;
   saveProfile();
 }
 
@@ -97,15 +103,97 @@ function thump(vol: number, delay = 0): void {
   src.start(now);
 }
 
+// ── Sampled SFX (real foley) ────────────────────────────────────────────────
+// Tactile events (drop / merge / discovery / clicks / game over) use short,
+// trimmed, normalised foley clips. They are pitched at playback time so the
+// same handful of pops covers every tier and combo step. If a clip ever fails
+// to load/decode, the synthesised fallback below keeps the event audible.
+
+const SFX = {
+  drop:     'drop.mp3',     // soft springy "bounce" on release
+  pop1:     'pop1.mp3',     // squishy merge pops — pitched per tier/combo
+  pop2:     'pop2.mp3',
+  pop3:     'pop3.mp3',
+  ding:     'ding.mp3',     // bright glass ding for discoveries
+  gameover: 'gameover.mp3', // balloon deflate
+  warn:     'warn.mp3',     // overflow beep
+  click:    'click.mp3',    // UI button
+} as const;
+type SfxName = keyof typeof SFX;
+const POPS: SfxName[] = ['pop1', 'pop2', 'pop3'];
+
+const buffers: Partial<Record<SfxName, AudioBuffer>> = {};
+let samplesRequested = false;
+
+function loadSamples(ctx: AudioContext): void {
+  if (samplesRequested) return;
+  samplesRequested = true;
+  (Object.keys(SFX) as SfxName[]).forEach((name) => {
+    fetch(import.meta.env.BASE_URL + 'audio/sfx/' + SFX[name])
+      .then(r => r.arrayBuffer())
+      // Callback form of decodeAudioData for older Safari compatibility.
+      .then(ab => new Promise<AudioBuffer>((res, rej) => ctx.decodeAudioData(ab, res, rej)))
+      .then(buf => { buffers[name] = buf; })
+      .catch(() => { /* leave undefined — event will use its synth fallback */ });
+  });
+}
+
+interface PlayOpts { rate?: number; vol?: number; delay?: number; }
+
+/** Play a decoded sample. Returns false (and runs `fallback`) if it isn't ready. */
+function playBuf(name: SfxName, o: PlayOpts, fallback?: () => void): boolean {
+  const ctx = getCtx();
+  const buf = buffers[name];
+  if (!ctx || !master || !buf) { fallback?.(); return false; }
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = o.rate ?? 1;
+  const gain = ctx.createGain();
+  gain.gain.value = o.vol ?? 0.4;
+  src.connect(gain);
+  gain.connect(master);
+  src.start(ctx.currentTime + (o.delay ?? 0));
+  return true;
+}
+
 // C major pentatonic — everything sounds friendly together.
 const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 784.0, 880.0];
 
 export function sfxDrop(tier: number): void {
+  // Higher tiers (bigger animals) land a touch lower; keep it light.
+  const rate = Math.max(0.85, Math.min(1.25, 1.14 - tier * 0.02));
+  playBuf('drop', { rate, vol: 0.3 }, () => synthDrop(tier));
+}
+
+export function sfxMerge(tier: number, combo: number): void {
+  // Bigger animals pop lower & fuller; each combo step nudges the pitch up.
+  const tierRate  = 1.18 - Math.min(tier, MAX_TIER) * 0.042;
+  const comboMul  = Math.pow(1.045, Math.min(Math.max(combo - 1, 0), 8));
+  const rate = Math.max(0.7, Math.min(1.9, tierRate * comboMul));
+  const vol  = 0.42 + Math.min(tier, 9) * 0.012;
+  const variant = POPS[(tier + combo) % POPS.length];
+  const played = playBuf(variant, { rate, vol }, () => synthMerge(tier, combo));
+  // Add low-end weight to heavy merges (the synth fallback bakes in its own).
+  if (played && tier >= 6) thump(tier >= MAX_TIER ? 0.18 : 0.12);
+}
+
+export function sfxDiscovery(): void {
+  // A quick rising glass-bell arpeggio built from one ding sample.
+  const played = playBuf('ding', { rate: 1.0, vol: 0.4 }, () => synthDiscovery());
+  if (played) {
+    playBuf('ding', { rate: 1.26, vol: 0.34, delay: 0.10 });
+    playBuf('ding', { rate: 1.5,  vol: 0.26, delay: 0.20 });
+  }
+}
+
+// ── Synthesised fallbacks (used only if a sample isn't loaded) ───────────────
+
+function synthDrop(tier: number): void {
   tone({ freq: 380 + tier * 26, dur: 0.09, type: 'triangle', vol: 0.05, endFreq: 150 + tier * 10 });
   thump(0.10);
 }
 
-export function sfxMerge(tier: number, combo: number): void {
+function synthMerge(tier: number, combo: number): void {
   const idx = Math.min(PENTA.length - 1, tier);
   const comboShift = Math.min(4, Math.max(0, combo - 1)) * 0.5; // each combo step pushes pitch up
   const base = PENTA[idx] * Math.pow(2, comboShift / 12 * 2);
@@ -116,7 +204,7 @@ export function sfxMerge(tier: number, combo: number): void {
   if (tier >= 6) thump(0.14);
 }
 
-export function sfxDiscovery(): void {
+function synthDiscovery(): void {
   const notes = [523.25, 659.25, 784.0, 1046.5];
   notes.forEach((f, i) => tone({ freq: f, dur: 0.34, type: 'triangle', vol: 0.055, delay: i * 0.09 }));
   notes.forEach((f, i) => tone({ freq: f * 2, dur: 0.26, type: 'sine', vol: 0.025, delay: 0.05 + i * 0.09 }));
@@ -143,21 +231,30 @@ export function sfxMission(): void {
 }
 
 export function sfxClick(): void {
-  tone({ freq: 660, dur: 0.05, type: 'triangle', vol: 0.04, endFreq: 520 });
+  playBuf('click', { rate: 1.0, vol: 0.4 }, () =>
+    tone({ freq: 660, dur: 0.05, type: 'triangle', vol: 0.04, endFreq: 520 }));
 }
 
 export function sfxCascadePop(step: number): void {
-  const f = 330 * Math.pow(2, Math.min(24, step) / 12);
-  tone({ freq: f, dur: 0.08, type: 'triangle', vol: 0.045 });
+  // End-of-run pop rain: same merge pops, ratcheting up in pitch per step.
+  const rate = Math.min(2.3, Math.pow(1.05, Math.min(step, 22)));
+  const variant = POPS[step % POPS.length];
+  playBuf(variant, { rate, vol: 0.34 }, () => {
+    const f = 330 * Math.pow(2, Math.min(24, step) / 12);
+    tone({ freq: f, dur: 0.08, type: 'triangle', vol: 0.045 });
+  });
 }
 
 export function sfxGameOver(): void {
-  tone({ freq: 320, dur: 0.6, type: 'sawtooth', vol: 0.04, endFreq: 90 });
-  tone({ freq: 160, dur: 0.7, type: 'sine', vol: 0.045, endFreq: 60, delay: 0.1 });
+  playBuf('gameover', { rate: 1.0, vol: 0.5 }, () => {
+    tone({ freq: 320, dur: 0.6, type: 'sawtooth', vol: 0.04, endFreq: 90 });
+    tone({ freq: 160, dur: 0.7, type: 'sine', vol: 0.045, endFreq: 60, delay: 0.1 });
+  });
 }
 
 export function sfxWarning(): void {
-  tone({ freq: 740, dur: 0.09, type: 'square', vol: 0.022 });
+  playBuf('warn', { rate: 1.0, vol: 0.22 }, () =>
+    tone({ freq: 740, dur: 0.09, type: 'square', vol: 0.022 }));
 }
 
 // ── Background music (real audio files) ─────────────────────────────────────
@@ -215,4 +312,28 @@ export function stopMusic(): void {
   menuEl?.pause();
   gameEl?.pause();
   currentTrack = null;
+}
+
+// ── Ad audio handling ───────────────────────────────────────────────────────
+// CrazyGames requires the game to be silent while an ad plays. We duck the
+// master gain to zero (covers all SFX) and pause the music element, then
+// restore both — respecting the player's existing mute preference.
+
+let adMusicTrack: 'menu' | 'game' | null = null;
+
+export function muteForAd(): void {
+  adMusicTrack = currentTrack;
+  menuEl?.pause();
+  gameEl?.pause();
+  if (master && state.audioCtx) master.gain.setValueAtTime(0, state.audioCtx.currentTime);
+}
+
+export function unmuteAfterAd(): void {
+  if (master && state.audioCtx) {
+    master.gain.setValueAtTime(state.profile.muted ? 0 : 1, state.audioCtx.currentTime);
+  }
+  // Resume whichever track was playing when the ad interrupted.
+  const el = adMusicTrack === 'menu' ? menuEl : adMusicTrack === 'game' ? gameEl : null;
+  el?.play().catch(() => { /* will retry on next gesture */ });
+  adMusicTrack = null;
 }

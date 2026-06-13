@@ -136,7 +136,9 @@ function thump(vol: number, delay = 0): void {
 
 const SFX = {
   drop:     'drop.mp3',     // soft springy "bounce" on release
-  pop1:     'pop1.mp3',     // squishy merge pops — pitched per tier/combo
+  land:     'land.mp3',     // soft, dull thud on hard landings / wall smacks
+  merge:    'merge.mp3',    // bubbly bloop — pitched per tier/combo
+  pop1:     'pop1.mp3',     // pops for the end-of-run cascade
   pop2:     'pop2.mp3',
   pop3:     'pop3.mp3',
   ding:     'ding.mp3',     // bright glass ding for discoveries
@@ -190,14 +192,34 @@ export function sfxDrop(tier: number): void {
   playBuf('drop', { rate, vol: 0.3 }, () => synthDrop(tier));
 }
 
+let lastLand = -1;
+/**
+ * Soft, dull thud when a Dropimal lands hard or smacks a wall. Deliberately
+ * quiet so it sits under the merge bloop rather than competing with it. `speed`
+ * scales the volume and gates out gentle settles; `tier` gives bigger animals a
+ * slightly lower thud. Globally throttled so a settling pile or a nudge can't
+ * stack into a thud-storm.
+ */
+export function sfxLand(speed: number, tier: number): void {
+  const ctx = getCtx();
+  if (!ctx) return;
+  if (ctx.currentTime - lastLand < 0.05) return;
+  const vol = 0.04 + Math.min(speed, 1000) / 5000; // ~0.07..0.24; soft hits stay silent
+  if (vol < 0.07) return;
+  lastLand = ctx.currentTime;
+  const rate = Math.max(0.85, Math.min(1.18, 1.1 - tier * 0.035)) * (1 + (Math.random() - 0.5) * 0.05);
+  playBuf('land', { rate, vol }, () => thump(Math.min(0.1, vol)));
+}
+
 export function sfxMerge(tier: number, combo: number): void {
-  // Bigger animals pop lower & fuller; each combo step nudges the pitch up.
-  const tierRate  = 1.18 - Math.min(tier, MAX_TIER) * 0.042;
-  const comboMul  = Math.pow(1.045, Math.min(Math.max(combo - 1, 0), 8));
-  const rate = Math.max(0.7, Math.min(1.9, tierRate * comboMul));
+  // Bigger animals bloop lower & fuller; each combo step nudges the pitch up,
+  // with a little random jitter so repeated merges aren't identical.
+  const tierRate = 1.18 - Math.min(tier, MAX_TIER) * 0.042;
+  const comboMul = Math.pow(1.045, Math.min(Math.max(combo - 1, 0), 8));
+  const jitter   = 1 + (Math.random() - 0.5) * 0.05;
+  const rate = Math.max(0.7, Math.min(1.9, tierRate * comboMul * jitter));
   const vol  = 0.42 + Math.min(tier, 9) * 0.012;
-  const variant = POPS[(tier + combo) % POPS.length];
-  const played = playBuf(variant, { rate, vol }, () => synthMerge(tier, combo));
+  const played = playBuf('merge', { rate, vol }, () => synthMerge(tier, combo));
   // Add low-end weight to heavy merges (the synth fallback bakes in its own).
   if (played && tier >= 6) thump(tier >= MAX_TIER ? 0.18 : 0.12);
 }

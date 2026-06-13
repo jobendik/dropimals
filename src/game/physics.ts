@@ -1,16 +1,23 @@
 import { state } from '../state';
 import { LEFT, RIGHT, FLOOR, WALL_BOUNCE, FLOOR_FRICTION, COLLISION_BOUNCE } from '../constants';
+import { sfxLand } from '../audio/audio';
 import type { Body } from '../types';
+
+// Only smacks above this horizontal speed squeak — a pile leaning on a wall
+// re-contacts every step with near-zero vx and should stay silent.
+const WALL_HIT_SPEED = 100;
 
 export function collideWalls(b: Body): void {
   if (b.x - b.r < LEFT) {
     b.x = LEFT + b.r;
+    if (Math.abs(b.vx) > WALL_HIT_SPEED) sfxLand(Math.abs(b.vx), b.tier);
     b.vx = Math.abs(b.vx) * WALL_BOUNCE;
     b.av *= 0.85;
   }
 
   if (b.x + b.r > RIGHT) {
     b.x = RIGHT - b.r;
+    if (Math.abs(b.vx) > WALL_HIT_SPEED) sfxLand(Math.abs(b.vx), b.tier);
     b.vx = -Math.abs(b.vx) * WALL_BOUNCE;
     b.av *= 0.85;
   }
@@ -20,8 +27,9 @@ export function collideWalls(b: Body): void {
     if (Math.abs(b.vy) < 65) {
       b.vy = 0;
     } else {
-      // Hard landing: squash for the spring-back animation.
+      // Hard landing: squash for the spring-back animation + a squeak.
       b.squash = Math.min(b.squash, Math.max(0.68, 1 - Math.abs(b.vy) / 2200));
+      sfxLand(Math.abs(b.vy), b.tier);
       b.vy = -Math.abs(b.vy) * 0.10;
     }
     b.vx *= FLOOR_FRICTION;

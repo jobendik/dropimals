@@ -1,15 +1,21 @@
 /// <reference types="node" />
 import { defineConfig } from 'vite';
 
-// Set this to your GitHub repository name (e.g. 'dropimals')
-// for a project page at https://username.github.io/dropimals/
-// Use '/' if deploying to a custom domain or a user/org page.
+// GitHub Pages project name, used for the https://username.github.io/<repo>/ path.
 const REPO_NAME = 'dropimals';
 
-export default defineConfig({
-  base: process.env.NODE_ENV === 'production' ? `/${REPO_NAME}/` : '/',
-  build: {
-    outDir: 'dist',
-    target: 'es2020',
-  },
+// Two build targets:
+//   npm run build             → GitHub Pages  (base '/dropimals/', out 'dist')
+//   npm run build:crazygames  → CrazyGames    (relative './' paths, out 'dist-crazygames')
+// CrazyGames serves games from its own sub-path and requires relative asset
+// URLs, so we emit base './' there instead of an absolute path.
+export default defineConfig(({ mode }) => {
+  const isCrazyGames = mode === 'crazygames';
+  return {
+    base: isCrazyGames ? './' : mode === 'production' ? `/${REPO_NAME}/` : '/',
+    build: {
+      outDir: isCrazyGames ? 'dist-crazygames' : 'dist',
+      target: 'es2020',
+    },
+  };
 });

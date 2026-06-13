@@ -6,7 +6,7 @@ import { drawShockwaves, drawParticles, drawConfetti, drawFloaters, drawFlash } 
 import { drawHUD } from './hud';
 import {
   drawDropPreview, drawStartHint, drawGameOver, drawMenu,
-  drawPauseOverlay, drawDex, drawBanner,
+  drawPauseOverlay, drawDex, drawBanner, drawContinueOffer,
 } from './ui';
 import { clamp } from '../utils/math';
 
@@ -68,6 +68,7 @@ export function draw(): void {
 
   if (screen === 'paused') drawPauseOverlay();
   if (screen === 'over') drawGameOver();
+  if (screen === 'continue') drawContinueOffer();
 
   ctx.restore();
 }

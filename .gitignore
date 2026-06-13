@@ -1,4 +1,9 @@
 node_modules/
 dist/
+dist-crazygames/
 .DS_Store
 *.local
+
+# Raw sound-effect source library (2.6 GB) — not shipped; chosen clips are
+# processed into public/audio/sfx/.
+INSPIRATION_FX/

@@ -2,17 +2,20 @@ import { state } from '../state';
 import { DROPIMALS, MAX_TIER, MAX_DROP_TIER } from '../data/dropimals';
 import {
   LEFT, RIGHT, DROP_Y, DANGER_Y, DROP_COOLDOWN, COMBO_WINDOW,
-  FEVER_COMBO, FEVER_TIME, OVERFLOW_GRACE, NUDGE_PER_MERGE,
+  FEVER_COMBO, FEVER_TIME, OVERFLOW_GRACE, NUDGE_PER_MERGE, CONTINUE_OFFER,
 } from '../constants';
 import { clamp } from '../utils/math';
 import { addParticles, addFloater, burstConfetti, showBanner, haptic } from './fx';
 import {
   sfxDrop, sfxMerge, sfxNudge, sfxDiscovery, sfxFever, sfxNewBest,
-  sfxGameOver, sfxCascadePop,
+  sfxGameOver, sfxCascadePop, sfxWarning, startMusic,
 } from '../audio/audio';
 import { updateMissionForMerge, makeMission } from './missions';
 import { touchDailyStreak, commitScore, saveProfile } from '../utils/storage';
-import { cgGameplayStart, cgGameplayStop, cgHappyTime } from '../platform/crazygames';
+import {
+  cgGameplayStart, cgGameplayStop, cgHappyTime, cgMidgameAd, cgSubmitScore,
+  cgRewardedAd, cgRewardedAvailable,
+} from '../platform/crazygames';
 import type { Body } from '../types';
 
 export function randomDropTier(): number {
@@ -45,18 +48,34 @@ export function randomDropTier(): number {
   return tier;
 }
 
-export function startRun(): void {
-  resetGame();
-  state.screen = 'play';
-  state.profile.games++;
-  const newDay = touchDailyStreak();
-  saveProfile();
-  cgGameplayStart();
+let sessionRuns = 0;
+let runStarting = false;
 
-  if (newDay && state.profile.streak >= 2) {
-    // Daily comeback reward: head start on the nudge meter.
-    state.nudgeCharge = Math.min(1, 0.25 + state.profile.streak * 0.15);
-    showBanner('DAY ' + state.profile.streak + ' STREAK!', 'Nudge meter head start', '#8ffbff', 2.4);
+export async function startRun(): Promise<void> {
+  if (runStarting) return; // guard against double-taps while an ad loads
+  runStarting = true;
+  try {
+    // Show an interstitial between runs — but never before the first game of a
+    // session (first impressions matter, and the platform disables ads during a
+    // Basic Launch anyway). The previous screen stays visible during the ad.
+    if (sessionRuns > 0) await cgMidgameAd();
+    sessionRuns++;
+
+    resetGame();
+    state.screen = 'play';
+    state.profile.games++;
+    const newDay = touchDailyStreak();
+    saveProfile();
+    cgGameplayStart();
+    startMusic('game');
+
+    if (newDay && state.profile.streak >= 2) {
+      // Daily comeback reward: head start on the nudge meter.
+      state.nudgeCharge = Math.min(1, 0.25 + state.profile.streak * 0.15);
+      showBanner('DAY ' + state.profile.streak + ' STREAK!', 'Nudge meter head start', '#8ffbff', 2.4);
+    }
+  } finally {
+    runStarting = false;
   }
 }
 
@@ -86,6 +105,9 @@ export function resetGame(): void {
   state.cascadeTimer   = -1;
   state.cascadeBonus   = 0;
   state.overPanelReady = false;
+  state.reviveUsed     = false;
+  state.continueTimer  = 0;
+  state.continuePending = false;
   state.combo          = 0;
   state.comboTimer     = 0;
   state.maxCombo       = 0;
@@ -330,11 +352,107 @@ function triggerGameOver(): void {
   state.gameOver = true;
   state.canDrop  = false;
   state.shake    = 15;
+
+  // Offer a one-time second chance before ending the run. The board freezes
+  // under the offer; declining or letting it expire starts the cascade.
+  if (!state.reviveUsed && cgRewardedAvailable()) {
+    state.screen          = 'continue';
+    state.continueTimer   = CONTINUE_OFFER;
+    state.continuePending = false;
+    state.cascadeTimer    = -1;
+    cgGameplayStop(); // gameplay pauses for the decision / rewarded ad
+    sfxWarning();
+    haptic(30);
+    return;
+  }
+
+  beginCascade();
+}
+
+function beginCascade(): void {
   state.cascadeTimer = 0.65; // pause for impact, then start popping
   state.cascadeBonus = 0;
   cascadeStep = 0;
   sfxGameOver();
   haptic(60);
+}
+
+/** Tick the second-chance countdown; end the run if it runs out. */
+export function updateContinueOffer(dt: number): void {
+  if (state.continuePending) return; // ad in flight — keep the offer up
+  state.continueTimer -= dt;
+  if (state.continueTimer <= 0) declineContinue();
+}
+
+/** Player took the second chance: watch a rewarded ad, then revive if earned. */
+export async function acceptContinue(): Promise<void> {
+  if (state.screen !== 'continue' || state.continuePending) return;
+  state.continuePending = true;
+  const rewarded = await cgRewardedAd();
+  state.continuePending = false;
+  if (state.screen !== 'continue') return; // state moved on while we waited
+  if (rewarded) doRevive();
+  else declineContinue(); // unfilled / skipped — no free revive
+}
+
+/** Player passed on the second chance (or it timed out): end the run. */
+export function declineContinue(): void {
+  if (state.screen !== 'continue') return;
+  state.continuePending = false;
+  state.screen = 'play';
+  beginCascade();
+}
+
+function doRevive(): void {
+  state.reviveUsed  = true;
+  state.gameOver    = false;
+  state.screen      = 'play';
+  state.dangerTime  = 0;
+  state.canDrop     = true;
+  state.combo       = 0;
+  state.comboTimer  = 0;
+
+  reliefCleanup();
+  cgGameplayStart(); // gameplay resumes after the rewarded ad
+
+  state.shake = 12;
+  state.flash = Math.max(state.flash, 0.3);
+  showBanner('SECOND CHANCE!', 'Cleared some space — keep going!', '#8ffbff', 2.2);
+  burstConfetti(210, 250, 60);
+  state.shockwaves.push({ x: 210, y: 420, r: 0, life: 0.7, age: 0, color: '#8ffbff' });
+  sfxNewBest();
+  cgHappyTime();
+  haptic(40);
+}
+
+/**
+ * Make room after a revive: shove the whole pile to unstick it, then clear up
+ * to six of the smallest, highest pieces (the clutter that fills the top),
+ * awarding their points so the rescue feels generous rather than punishing.
+ */
+function reliefCleanup(): void {
+  for (const b of state.bodies) {
+    b.vx += (Math.random() - 0.5) * 200;
+    b.vy -= 110 + Math.random() * 70;
+    b.av += (Math.random() - 0.5) * 2.5;
+    b.mergeLock = Math.max(b.mergeLock, 0.06);
+    b.squash = 0.8;
+  }
+
+  const keepMin = 3;
+  const removable = [...state.bodies]
+    .sort((a, b) => a.tier - b.tier || a.y - b.y)
+    .slice(0, Math.max(0, Math.min(6, state.bodies.length - keepMin)));
+
+  if (!removable.length) return;
+  const ids = new Set(removable.map(b => b.id));
+  let gained = 0;
+  for (const b of removable) {
+    gained += DROPIMALS[b.tier].points;
+    addParticles(b.x, b.y, DROPIMALS[b.tier].c1, 12, 0.8);
+  }
+  state.bodies = state.bodies.filter(b => !ids.has(b.id));
+  state.score += gained;
 }
 
 /**
@@ -357,6 +475,7 @@ export function updateCascade(dt: number): void {
     }
     commitScore();
     cgGameplayStop();
+    cgSubmitScore(state.score); // final score, including the cascade bonus
     return;
   }
 

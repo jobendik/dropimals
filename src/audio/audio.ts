@@ -3,11 +3,16 @@ import { state } from '../state';
 import { saveProfile } from '../utils/storage';
 import { MAX_TIER } from '../data/dropimals';
 
+// Routing: every voice → its channel bus → master → destination.
+//   master   — global bus, also ducked to 0 while an ad plays.
+//   sfxBus   — all sound effects; gain = muted ? 0 : profile.sfxVolume.
+//   musicGain — background music;  gain = musicMuted ? 0 : profile.musicVolume.
 let master: GainNode | null = null;
+let sfxBus: GainNode | null = null;
 let musicGain: GainNode | null = null;
 
-// Background music sits at half volume so the SFX read clearly over it.
-const MUSIC_VOLUME = 0.5;
+function sfxLevel(): number { return state.profile.muted ? 0 : state.profile.sfxVolume; }
+function musicLevel(): number { return state.profile.musicMuted ? 0 : state.profile.musicVolume; }
 
 function getCtx(): AudioContext | null {
   try {
@@ -16,11 +21,15 @@ function getCtx(): AudioContext | null {
         || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       state.audioCtx = new AC();
       master = state.audioCtx.createGain();
-      master.gain.value = state.profile.muted ? 0 : 1;
+      master.gain.value = 1;
       master.connect(state.audioCtx.destination);
 
+      sfxBus = state.audioCtx.createGain();
+      sfxBus.gain.value = sfxLevel();
+      sfxBus.connect(master);
+
       musicGain = state.audioCtx.createGain();
-      musicGain.gain.value = state.profile.musicMuted ? 0 : MUSIC_VOLUME;
+      musicGain.gain.value = musicLevel();
       musicGain.connect(master);
 
       loadSamples(state.audioCtx);
@@ -34,13 +43,29 @@ function getCtx(): AudioContext | null {
 
 export function toggleMute(): void {
   state.profile.muted = !state.profile.muted;
-  if (master) master.gain.value = state.profile.muted ? 0 : 1;
+  if (sfxBus) sfxBus.gain.value = sfxLevel();
   saveProfile();
 }
 
 export function toggleMusic(): void {
   state.profile.musicMuted = !state.profile.musicMuted;
-  if (musicGain) musicGain.gain.value = state.profile.musicMuted ? 0 : MUSIC_VOLUME;
+  if (musicGain) musicGain.gain.value = musicLevel();
+  saveProfile();
+}
+
+/** Set SFX volume (0..1). Dragging above zero also un-mutes the channel. */
+export function setSfxVolume(v: number): void {
+  state.profile.sfxVolume = Math.max(0, Math.min(1, v));
+  if (state.profile.sfxVolume > 0) state.profile.muted = false;
+  if (sfxBus) sfxBus.gain.value = sfxLevel();
+  saveProfile();
+}
+
+/** Set music volume (0..1). Dragging above zero also un-mutes the channel. */
+export function setMusicVolume(v: number): void {
+  state.profile.musicVolume = Math.max(0, Math.min(1, v));
+  if (state.profile.musicVolume > 0) state.profile.musicMuted = false;
+  if (musicGain) musicGain.gain.value = musicLevel();
   saveProfile();
 }
 
@@ -57,7 +82,7 @@ interface ToneOpts {
 
 function tone(o: ToneOpts): void {
   const ctx = getCtx();
-  if (!ctx || !master) return;
+  if (!ctx || !sfxBus) return;
   const now = ctx.currentTime + (o.delay ?? 0);
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -73,7 +98,7 @@ function tone(o: ToneOpts): void {
   gain.gain.exponentialRampToValueAtTime(0.0001, now + o.dur);
 
   osc.connect(gain);
-  gain.connect(o.out ?? master);
+  gain.connect(o.out ?? sfxBus);
   osc.start(now);
   osc.stop(now + o.dur + 0.02);
 }
@@ -81,7 +106,7 @@ function tone(o: ToneOpts): void {
 /** Short filtered-noise thump for landings and drops. */
 function thump(vol: number, delay = 0): void {
   const ctx = getCtx();
-  if (!ctx || !master) return;
+  if (!ctx || !sfxBus) return;
   const now = ctx.currentTime + delay;
   const len = Math.floor(ctx.sampleRate * 0.08);
   const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -99,7 +124,7 @@ function thump(vol: number, delay = 0): void {
 
   src.connect(filter);
   filter.connect(gain);
-  gain.connect(master);
+  gain.connect(sfxBus);
   src.start(now);
 }
 
@@ -144,14 +169,14 @@ interface PlayOpts { rate?: number; vol?: number; delay?: number; }
 function playBuf(name: SfxName, o: PlayOpts, fallback?: () => void): boolean {
   const ctx = getCtx();
   const buf = buffers[name];
-  if (!ctx || !master || !buf) { fallback?.(); return false; }
+  if (!ctx || !sfxBus || !buf) { fallback?.(); return false; }
   const src = ctx.createBufferSource();
   src.buffer = buf;
   src.playbackRate.value = o.rate ?? 1;
   const gain = ctx.createGain();
   gain.gain.value = o.vol ?? 0.4;
   src.connect(gain);
-  gain.connect(master);
+  gain.connect(sfxBus);
   src.start(ctx.currentTime + (o.delay ?? 0));
   return true;
 }
@@ -329,8 +354,9 @@ export function muteForAd(): void {
 }
 
 export function unmuteAfterAd(): void {
+  // Master is just the ad-duck bus now; per-channel mute lives on sfxBus/musicGain.
   if (master && state.audioCtx) {
-    master.gain.setValueAtTime(state.profile.muted ? 0 : 1, state.audioCtx.currentTime);
+    master.gain.setValueAtTime(1, state.audioCtx.currentTime);
   }
   // Resume whichever track was playing when the ad interrupted.
   const el = adMusicTrack === 'menu' ? menuEl : adMusicTrack === 'game' ? gameEl : null;

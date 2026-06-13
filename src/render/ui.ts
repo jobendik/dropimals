@@ -1,10 +1,10 @@
 import { ctx, roundRect } from './canvas';
 import { state } from '../state';
 import { DROPIMALS, MAX_TIER } from '../data/dropimals';
-import { BTN, GW, GH, LEFT, RIGHT, DROP_Y } from '../constants';
+import { BTN, GW, GH, LEFT, RIGHT, DROP_Y, CONTINUE_OFFER } from '../constants';
 import { format, clamp, easeOutBack } from '../utils/math';
 import { drawDropimal, drawDropimalIcon } from './animals';
-import { drawButton, drawToggle } from './hud';
+import { drawButton, drawToggle, drawSlider } from './hud';
 import { predictLandingY } from '../game/physics';
 
 export function drawDropPreview(): void {
@@ -190,7 +190,9 @@ export function drawMenu(): void {
   drawButton(BTN.dex, `DROPIDEX  ${found}/${MAX_TIER + 1}`, { fontSize: 16 });
 
   drawToggle(BTN.soundMenu, 'SFX', !p.muted);
+  drawSlider(BTN.sfxSliderMenu, p.sfxVolume, !p.muted);
   drawToggle(BTN.musicMenu, '♪', !p.musicMuted);
+  drawSlider(BTN.musicSliderMenu, p.musicVolume, !p.musicMuted);
 
   ctx.restore();
 }
@@ -211,7 +213,72 @@ export function drawPauseOverlay(): void {
   drawButton(BTN.restart, 'RESTART');
   drawButton(BTN.toMenu, 'MAIN MENU');
   drawToggle(BTN.soundPause, 'SFX', !state.profile.muted);
+  drawSlider(BTN.sfxSliderPause, state.profile.sfxVolume, !state.profile.muted);
   drawToggle(BTN.musicPause, '♪', !state.profile.musicMuted);
+  drawSlider(BTN.musicSliderPause, state.profile.musicVolume, !state.profile.musicMuted);
+
+  ctx.restore();
+}
+
+// ── Second chance (rewarded-ad revive offer) ─────────────────────────────────
+
+export function drawContinueOffer(): void {
+  ctx.save();
+  ctx.fillStyle = 'rgba(8,10,26,.80)';
+  ctx.fillRect(0, 0, GW, GH);
+
+  // Panel
+  ctx.fillStyle = 'rgba(255,255,255,.10)';
+  roundRect(40, 168, 340, 408, 30);
+  ctx.fill();
+  ctx.strokeStyle = '#8ffbff';
+  ctx.lineWidth = 2;
+  roundRect(40, 168, 340, 408, 30);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff8fd6';
+  ctx.font = '1000 34px ui-rounded, system-ui, sans-serif';
+  ctx.fillText('BOX FULL!', GW / 2, 224);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '1000 22px ui-rounded, system-ui, sans-serif';
+  ctx.fillText('One more chance?', GW / 2, 258);
+
+  ctx.fillStyle = 'rgba(255,255,255,.66)';
+  ctx.font = '800 13px ui-rounded, system-ui, sans-serif';
+  ctx.fillText('Watch a short ad to clear some space', GW / 2, 286);
+  ctx.fillText('and keep your run going.', GW / 2, 304);
+
+  // Score reminder
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.font = '900 11px ui-rounded, system-ui, sans-serif';
+  ctx.fillText('CURRENT SCORE', GW / 2, 342);
+  ctx.fillStyle = '#fff6a8';
+  ctx.font = '1000 34px ui-rounded, system-ui, sans-serif';
+  ctx.fillText(format(Math.floor(state.displayScore)), GW / 2, 380);
+
+  if (state.continuePending) {
+    // Ad is loading/playing — replace the controls with a status line.
+    const dots = '.'.repeat(1 + (Math.floor(state.time * 2) % 3));
+    ctx.fillStyle = '#8ffbff';
+    ctx.font = '1000 18px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('Loading ad' + dots, GW / 2, 470);
+    ctx.restore();
+    return;
+  }
+
+  // Countdown bar
+  const t = clamp(state.continueTimer / CONTINUE_OFFER, 0, 1);
+  ctx.fillStyle = 'rgba(255,255,255,.14)';
+  roundRect(90, 398, 240, 7, 3.5);
+  ctx.fill();
+  ctx.fillStyle = t > 0.34 ? '#8ffbff' : '#ff8f8f';
+  roundRect(90, 398, 240 * t, 7, 3.5);
+  ctx.fill();
+
+  drawButton(BTN.continueWatch, 'WATCH AD  &  CONTINUE', { primary: true, fontSize: 17 });
+  drawButton(BTN.continueDecline, 'NO THANKS  (' + Math.ceil(state.continueTimer) + ')', { fontSize: 14 });
 
   ctx.restore();
 }

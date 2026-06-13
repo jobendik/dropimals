@@ -46,6 +46,13 @@ export interface GameState {
   /** High score before this run started, for end-screen record detection. */
   prevBest: number;
 
+  /** One-time rewarded-ad "second chance" per run. */
+  reviveUsed: boolean;
+  /** Countdown (s) while the continue offer is shown; auto-declines at 0. */
+  continueTimer: number;
+  /** True while the rewarded ad is loading/playing, so the offer won't expire. */
+  continuePending: boolean;
+
   mission: Mission | null;
   missionIndex: number;
   missionsDone: number;
@@ -113,6 +120,10 @@ export const state: GameState = {
   newBestShown: false,
   prevBest: 0,
 
+  reviveUsed: false,
+  continueTimer: 0,
+  continuePending: false,
+
   mission: null,
   missionIndex: 0,
   missionsDone: 0,
@@ -133,6 +144,8 @@ export const state: GameState = {
     biggestTier: 0,
     muted: false,
     musicMuted: false,
+    sfxVolume: 1,
+    musicVolume: 0.3,
   },
   runDiscoveries: [],
 

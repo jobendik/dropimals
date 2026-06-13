@@ -67,6 +67,41 @@ export function drawToggle(b: ButtonRect, label: string, on: boolean): void {
   ctx.restore();
 }
 
+/** Horizontal volume slider. `value` is 0..1; dimmed when the channel is off. */
+export function drawSlider(b: ButtonRect, value: number, on: boolean): void {
+  ctx.save();
+  const cy = b.y + b.h / 2;
+  const trackH = 6;
+  const v = on ? clamp(value, 0, 1) : 0;
+
+  // Track
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  roundRect(b.x, cy - trackH / 2, b.w, trackH, trackH / 2);
+  ctx.fill();
+
+  // Filled portion
+  if (v > 0) {
+    const g = ctx.createLinearGradient(b.x, cy, b.x + b.w, cy);
+    g.addColorStop(0, '#66f7ff');
+    g.addColorStop(1, '#ff8fd6');
+    ctx.fillStyle = g;
+    roundRect(b.x, cy - trackH / 2, b.w * v, trackH, trackH / 2);
+    ctx.fill();
+  }
+
+  // Knob
+  const kx = b.x + b.w * v;
+  ctx.beginPath();
+  ctx.arc(kx, cy, 8, 0, Math.PI * 2);
+  ctx.fillStyle = on ? '#ffffff' : 'rgba(255,255,255,.4)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.28)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 export function drawHUD(): void {
   ctx.save();
 

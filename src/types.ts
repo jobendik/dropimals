@@ -106,7 +106,7 @@ export interface ButtonRect {
   h: number;
 }
 
-export type Screen = 'menu' | 'play' | 'paused' | 'over' | 'dex';
+export type Screen = 'menu' | 'play' | 'paused' | 'over' | 'dex' | 'continue';
 
 /** Persistent player profile (localStorage). */
 export interface Profile {
@@ -119,6 +119,10 @@ export interface Profile {
   biggestTier: number;
   muted: boolean;
   musicMuted: boolean;
+  /** SFX channel volume, 0..1. */
+  sfxVolume: number;
+  /** Music channel volume, 0..1. */
+  musicVolume: number;
 }
 
 /** A big announcement banner (discovery, new best, fever...). */

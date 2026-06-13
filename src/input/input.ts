@@ -2,14 +2,40 @@ import { state } from '../state';
 import { DROPIMALS } from '../data/dropimals';
 import { BTN, LEFT, RIGHT } from '../constants';
 import { clamp } from '../utils/math';
-import { dropCurrent, useNudge, startRun, swapNext } from '../game/bodies';
-import { sfxClick, toggleMute, toggleMusic, startMusic } from '../audio/audio';
+import { dropCurrent, useNudge, startRun, swapNext, acceptContinue, declineContinue } from '../game/bodies';
+import { sfxClick, toggleMute, toggleMusic, startMusic, setSfxVolume, setMusicVolume } from '../audio/audio';
 import { commitScore } from '../utils/storage';
 import { cgGameplayStart, cgGameplayStop } from '../platform/crazygames';
 import type { ButtonRect } from '../types';
 
 let aiming = false;
 let downOnButton = false;
+
+// Active volume-slider drag (menu / pause screens).
+let sliderDrag: { rect: ButtonRect; kind: 'sfx' | 'music' } | null = null;
+let lastPreview = 0;
+
+function applySlider(px: number): void {
+  if (!sliderDrag) return;
+  const r = sliderDrag.rect;
+  const v = clamp((px - r.x) / r.w, 0, 1);
+  if (sliderDrag.kind === 'sfx') {
+    setSfxVolume(v);
+    // Audible preview of the new SFX level, throttled so dragging isn't noisy.
+    if (Math.abs(v - lastPreview) >= 0.07) { lastPreview = v; sfxClick(); }
+  } else {
+    setMusicVolume(v); // music level changes live — no extra preview needed
+  }
+}
+
+function beginSliderDrag(kind: 'sfx' | 'music', rect: ButtonRect, px: number): void {
+  sliderDrag = { rect, kind };
+  const v = clamp((px - rect.x) / rect.w, 0, 1);
+  lastPreview = v;
+  if (kind === 'sfx') { setSfxVolume(v); sfxClick(); }
+  else setMusicVolume(v);
+  downOnButton = true;
+}
 
 function toGame(clientX: number, clientY: number): { x: number; y: number } {
   return {
@@ -49,7 +75,8 @@ function quitToMenu(): void {
 
 function onPointerDown(e: PointerEvent): void {
   const p = toGame(e.clientX, e.clientY);
-  startMusic(state.screen === 'play' ? 'game' : 'menu'); // boot audio on first gesture
+  // Boot audio on first gesture; keep game music for any in-run screen.
+  startMusic(state.screen === 'menu' || state.screen === 'dex' ? 'menu' : 'game');
   downOnButton = false;
 
   // Any press on a non-play screen must not leak into the play screen as a
@@ -57,10 +84,12 @@ function onPointerDown(e: PointerEvent): void {
   switch (state.screen) {
     case 'menu':
       downOnButton = true;
-      if (hit(p, BTN.play)) { sfxClick(); startRun(); startMusic('game'); }
+      if (hit(p, BTN.play)) { sfxClick(); startRun(); }
       else if (hit(p, BTN.dex)) { sfxClick(); state.screen = 'dex'; }
       else if (hit(p, BTN.soundMenu)) { sfxClick(); toggleMute(); }
+      else if (hit(p, BTN.sfxSliderMenu)) beginSliderDrag('sfx', BTN.sfxSliderMenu, p.x);
       else if (hit(p, BTN.musicMenu)) { sfxClick(); toggleMusic(); }
+      else if (hit(p, BTN.musicSliderMenu)) beginSliderDrag('music', BTN.musicSliderMenu, p.x);
       return;
 
     case 'dex':
@@ -71,17 +100,26 @@ function onPointerDown(e: PointerEvent): void {
     case 'paused':
       downOnButton = true;
       if (hit(p, BTN.resume)) { sfxClick(); resumeGame(); }
-      else if (hit(p, BTN.restart)) { sfxClick(); startRun(); startMusic('game'); }
+      else if (hit(p, BTN.restart)) { sfxClick(); startRun(); }
       else if (hit(p, BTN.toMenu)) { sfxClick(); quitToMenu(); }
       else if (hit(p, BTN.soundPause)) { sfxClick(); toggleMute(); }
+      else if (hit(p, BTN.sfxSliderPause)) beginSliderDrag('sfx', BTN.sfxSliderPause, p.x);
       else if (hit(p, BTN.musicPause)) { sfxClick(); toggleMusic(); }
+      else if (hit(p, BTN.musicSliderPause)) beginSliderDrag('music', BTN.musicSliderPause, p.x);
       return;
 
     case 'over':
       downOnButton = true;
       if (!state.overPanelReady) return;
-      if (hit(p, BTN.again)) { sfxClick(); startRun(); startMusic('game'); }
+      if (hit(p, BTN.again)) { sfxClick(); startRun(); }
       else if (hit(p, BTN.overMenu)) { sfxClick(); quitToMenu(); }
+      return;
+
+    case 'continue':
+      downOnButton = true;
+      if (state.continuePending) return; // ad in flight — ignore taps
+      if (hit(p, BTN.continueWatch)) { sfxClick(); acceptContinue(); }
+      else if (hit(p, BTN.continueDecline)) { sfxClick(); declineContinue(); }
       return;
 
     case 'play':
@@ -96,6 +134,7 @@ function onPointerDown(e: PointerEvent): void {
 }
 
 function onPointerMove(e: PointerEvent): void {
+  if (sliderDrag) { applySlider(toGame(e.clientX, e.clientY).x); return; }
   if (state.screen !== 'play') return;
   const p = toGame(e.clientX, e.clientY);
   // Mouse users aim by hovering; touch users by dragging
@@ -103,6 +142,7 @@ function onPointerMove(e: PointerEvent): void {
 }
 
 function onPointerUp(e: PointerEvent): void {
+  if (sliderDrag) { sliderDrag = null; downOnButton = false; return; }
   if (state.screen !== 'play' || state.gameOver) { aiming = false; return; }
   if (downOnButton) { downOnButton = false; aiming = false; return; }
 
@@ -126,9 +166,12 @@ function onKeyDown(e: KeyboardEvent): void {
   } else if (state.screen === 'paused' && (e.key === 'Escape' || e.key === 'p')) {
     resumeGame();
   } else if (state.screen === 'menu' && (e.key === ' ' || e.key === 'Enter')) {
-    startRun(); startMusic('game');
+    startRun();
   } else if (state.screen === 'over' && state.overPanelReady && (e.key === ' ' || e.key === 'Enter')) {
-    startRun(); startMusic('game');
+    startRun();
+  } else if (state.screen === 'continue' && !state.continuePending) {
+    if (e.key === ' ' || e.key === 'Enter') acceptContinue();
+    else if (e.key === 'Escape' || e.key === 'p') declineContinue();
   }
 }
 
@@ -136,7 +179,7 @@ export function initInput(canvas: HTMLCanvasElement): void {
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUp);
-  canvas.addEventListener('pointercancel', () => { aiming = false; });
+  canvas.addEventListener('pointercancel', () => { aiming = false; sliderDrag = null; });
   window.addEventListener('keydown', onKeyDown);
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 

@@ -18,6 +18,12 @@ export const FLOOR_FRICTION = 0.90;
 export const WALL_BOUNCE = 0.18;
 export const COLLISION_BOUNCE = 0.04;
 export const PHYSICS_STEPS = 5;
+// Hard cap on angular velocity (rad/s). Collision friction feeds spin every
+// substep; without a ceiling a wedged piece spirals into an ever-faster blur.
+export const MAX_SPIN = 6;
+// Spin below this linear speed (px/s) counts as "at rest" and settles quickly,
+// so animals that have stopped moving don't keep twirling forever.
+export const SPIN_REST_SPEED = 40;
 
 // Tuning
 export const DROP_COOLDOWN = 0.45;

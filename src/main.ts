@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { state } from './state';
-import { GRAVITY, AIR_DRAG, PHYSICS_STEPS } from './constants';
+import { GRAVITY, AIR_DRAG, PHYSICS_STEPS, MAX_SPIN, SPIN_REST_SPEED } from './constants';
+import { clamp } from './utils/math';
 import { initCanvas, canvas, resize } from './render/canvas';
 import { draw } from './render/renderer';
 import { initInput } from './input/input';
@@ -77,7 +78,12 @@ function step(dt: number): void {
     b.y += b.vy * dt;
 
     b.angle += b.av * dt;
-    b.av    *= Math.pow(0.988, dt * 60);
+    // Spin settles like a real rolling body: bleed it off fast once the piece
+    // is nearly stationary so it stops twirling, gently while it's in motion,
+    // and never let collision friction spin it up into a blur.
+    const atRest = (b.vx * b.vx + b.vy * b.vy) < SPIN_REST_SPEED * SPIN_REST_SPEED;
+    b.av *= Math.pow(atRest ? 0.86 : 0.988, dt * 60);
+    b.av  = clamp(b.av, -MAX_SPIN, MAX_SPIN);
 
     // Squash & stretch spring back to round
     b.squashV += (1 - b.squash) * 240 * dt;

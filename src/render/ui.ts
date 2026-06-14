@@ -2,10 +2,16 @@ import { ctx, roundRect } from './canvas';
 import { state } from '../state';
 import { DROPIMALS, MAX_TIER } from '../data/dropimals';
 import { BTN, GW, GH, LEFT, RIGHT, DROP_Y, CONTINUE_OFFER } from '../constants';
-import { format, clamp, easeOutBack } from '../utils/math';
+import { formatScore, clamp, easeOutBack } from '../utils/math';
 import { drawDropimal, drawDropimalIcon } from './animals';
 import { drawButton, drawToggle, drawSlider } from './hud';
+import { drawTopBar, drawBadge, drawCoin } from './meta';
 import { predictLandingY } from '../game/physics';
+import { totalClaimable } from '../meta/orders';
+import { claimableSeason } from '../meta/season';
+import { claimableAchievements } from '../meta/achievements';
+import { MAX_CHARGE, xpForLevel } from '../meta/profile';
+import { masteryLevel, masteryFrac, masteryNext, MASTERY_MAX } from '../meta/mastery';
 
 export function drawDropPreview(): void {
   if (state.gameOver || !state.canDrop) return;
@@ -124,6 +130,8 @@ export function drawBanner(): void {
 export function drawMenu(): void {
   ctx.save();
 
+  drawTopBar();
+
   // Decorative floating animals
   const decor: Array<[number, number, number, number]> = [
     [70, 180, 2, 0.0], [350, 160, 4, 1.5], [60, 560, 5, 3.0],
@@ -163,9 +171,16 @@ export function drawMenu(): void {
   ctx.font = '900 15px ui-rounded, system-ui, sans-serif';
   ctx.fillText('Drop · Merge · Evolve', GW / 2, 272);
 
+  // Personalised greeting for signed-in CrazyGames players.
+  if (state.cgUsername) {
+    ctx.fillStyle = '#8ffbff';
+    ctx.font = '900 13px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('Welcome back, ' + state.cgUsername + '!', GW / 2, 130);
+  }
+
   // Best + streak chips
   const p = state.profile;
-  let chips = 'BEST  ' + format(p.highScore);
+  let chips = 'BEST  ' + formatScore(p.highScore);
   if (p.streak >= 2) chips += '      DAY ' + p.streak + ' STREAK';
   ctx.fillStyle = 'rgba(0,0,0,.30)';
   roundRect(GW / 2 - 130, 308, 260, 36, 18);
@@ -187,7 +202,20 @@ export function drawMenu(): void {
   ctx.restore();
 
   const found = p.discovered.filter(Boolean).length;
-  drawButton(BTN.dex, `DROPIDEX  ${found}/${MAX_TIER + 1}`, { fontSize: 16 });
+  drawButton(BTN.dex, `DEX ${found}/${MAX_TIER + 1}`, { fontSize: 13 });
+  drawButton(BTN.rewards, 'REWARDS', { fontSize: 14, primary: true });
+  drawBadge(BTN.rewards.x + BTN.rewards.w - 8, BTN.rewards.y + 6,
+    totalClaimable() + claimableSeason() + claimableAchievements());
+
+  // Bonus-charge pips: full at day start, each charged run gives bonus XP.
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.font = '800 10px ui-rounded, system-ui, sans-serif';
+  ctx.fillText('BONUS CHARGE', GW / 2 - 30, 552);
+  for (let i = 0; i < MAX_CHARGE; i++) {
+    ctx.fillStyle = i < p.charge ? '#fff6a8' : 'rgba(255,255,255,.18)';
+    ctx.beginPath(); ctx.arc(GW / 2 + 26 + i * 16, 548, 5, 0, Math.PI * 2); ctx.fill();
+  }
 
   drawToggle(BTN.soundMenu, 'SFX', !p.muted);
   drawSlider(BTN.sfxSliderMenu, p.sfxVolume, !p.muted);
@@ -256,7 +284,7 @@ export function drawContinueOffer(): void {
   ctx.fillText('CURRENT SCORE', GW / 2, 342);
   ctx.fillStyle = '#fff6a8';
   ctx.font = '1000 34px ui-rounded, system-ui, sans-serif';
-  ctx.fillText(format(Math.floor(state.displayScore)), GW / 2, 380);
+  ctx.fillText(formatScore(state.displayScore), GW / 2, 380);
 
   if (state.continuePending) {
     // Ad is loading/playing — replace the controls with a status line.
@@ -325,39 +353,79 @@ export function drawGameOver(): void {
   ctx.fillStyle = 'rgba(255,255,255,.5)';
   ctx.font = '900 11px ui-rounded, system-ui, sans-serif';
   ctx.fillText('FINAL SCORE', GW / 2, 258);
-  ctx.fillStyle = '#fff6a8';
+  const finalText = formatScore(state.displayScore);
+  ctx.save();
+  ctx.translate(GW / 2, 304);
   ctx.font = '1000 42px ui-rounded, system-ui, sans-serif';
-  ctx.fillText(format(Math.floor(state.displayScore)), GW / 2, 304);
+  ctx.scale(Math.min(1, 248 / Math.max(1, ctx.measureText(finalText).width)), 1);
+  ctx.fillStyle = '#fff6a8';
+  ctx.fillText(finalText, 0, 0);
+  ctx.restore();
 
-  // Stats row
+  // Compact run stats
   const stats: Array<[string, string]> = [
     ['MERGES', String(state.merges)],
     ['MAX COMBO', 'x' + Math.max(1, state.maxCombo)],
-    ['MISSIONS', String(state.missionsDone)],
+    ['BIGGEST', DROPIMALS[state.bestTier].name],
   ];
   stats.forEach(([label, value], i) => {
     const x = 110 + i * 100;
     ctx.fillStyle = 'rgba(255,255,255,.5)';
     ctx.font = '900 9px ui-rounded, system-ui, sans-serif';
-    ctx.fillText(label, x, 352);
+    ctx.fillText(label, x, 346);
     ctx.fillStyle = '#8ffbff';
-    ctx.font = '1000 19px ui-rounded, system-ui, sans-serif';
-    ctx.fillText(value, x, 374);
+    ctx.font = '1000 14px ui-rounded, system-ui, sans-serif';
+    ctx.fillText(value, x, 366);
   });
 
-  // Biggest animal + run discoveries
-  ctx.fillStyle = 'rgba(255,255,255,.5)';
-  ctx.font = '900 10px ui-rounded, system-ui, sans-serif';
-  ctx.fillText('BIGGEST DROPIMAL', GW / 2, 402);
-  drawDropimalIcon(GW / 2 - (state.runDiscoveries.length ? 50 : 0), 432, state.bestTier, 22);
-
-  if (state.runDiscoveries.length) {
-    ctx.fillStyle = '#9dff74';
+  // ── Reward stack (the retention payoff, doc §4) ──
+  const rr = state.runReward;
+  if (rr) {
+    const p = state.profile;
+    // XP + level bar
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
     ctx.font = '900 10px ui-rounded, system-ui, sans-serif';
-    ctx.fillText('+' + state.runDiscoveries.length + ' NEW', GW / 2 + 50, 412);
-    state.runDiscoveries.slice(0, 3).forEach((t, i) => {
-      drawDropimalIcon(GW / 2 + 25 + i * 26, 436, t, 12);
-    });
+    ctx.fillText('LEVEL ' + p.level, 60, 392);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#9dff74';
+    ctx.font = '1000 12px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('+' + rr.xp + ' XP' + (rr.levelsGained ? '  ·  +' + rr.levelsGained + ' LV!' : ''), 360, 392);
+
+    ctx.fillStyle = 'rgba(255,255,255,.14)';
+    roundRect(60, 398, 300, 7, 3.5); ctx.fill();
+    const g = ctx.createLinearGradient(60, 0, 360, 0);
+    g.addColorStop(0, '#66f7ff'); g.addColorStop(1, '#ff8fd6');
+    ctx.fillStyle = g;
+    roundRect(60, 398, 300 * clamp(p.xp / xpForLevel(p.level), 0, 1), 7, 3.5); ctx.fill();
+
+    // Coins + season chips
+    drawCoin(72, 424, 7);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffe9a8';
+    ctx.font = '1000 13px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('+' + rr.coins, 84, 429);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#b28cff';
+    ctx.font = '1000 12px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('+' + rr.seasonXp + ' Season XP', 360, 429);
+
+    // Medals
+    if (rr.medals.length) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff6a8';
+      ctx.font = '900 10px ui-rounded, system-ui, sans-serif';
+      const names = rr.medals.slice(0, 3).map(m => m.name).join('  ·  ');
+      ctx.fillText('🏅 ' + names, GW / 2, 452);
+    }
+
+    // Next best action
+    ctx.fillStyle = 'rgba(0,0,0,.3)';
+    roundRect(60, 460, 300, 26, 13); ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#8ffbff';
+    ctx.font = '800 11px ui-rounded, system-ui, sans-serif';
+    ctx.fillText(rr.nextAction, GW / 2, 477);
   }
 
   drawButton(BTN.again, 'PLAY AGAIN', { primary: true, fontSize: 21 });
@@ -404,10 +472,26 @@ export function drawDex(): void {
     if (isFound) {
       ctx.fillStyle = d.c1;
       ctx.font = '1000 15px ui-rounded, system-ui, sans-serif';
-      ctx.fillText(d.name, x + 86, y + 40);
+      ctx.fillText(d.name, x + 86, y + 30);
       ctx.fillStyle = 'rgba(255,255,255,.6)';
-      ctx.font = '800 11px ui-rounded, system-ui, sans-serif';
-      ctx.fillText(d.points + ' pts', x + 86, y + 60);
+      ctx.font = '800 10px ui-rounded, system-ui, sans-serif';
+      ctx.fillText(formatScore(d.points) + ' pts', x + 86, y + 46);
+
+      // Mastery — usage level, progress bar, and next reward.
+      const mlvl = masteryLevel(i);
+      const maxed = mlvl >= MASTERY_MAX;
+      ctx.fillStyle = '#7fdcff';
+      ctx.font = '900 9px ui-rounded, system-ui, sans-serif';
+      ctx.fillText('MASTERY ' + (maxed ? 'MAX' : 'Lv ' + mlvl), x + 86, y + 64);
+      ctx.fillStyle = 'rgba(255,255,255,.12)';
+      roundRect(x + 86, y + 70, 82, 6, 3); ctx.fill();
+      ctx.fillStyle = maxed ? '#9dff74' : '#7fdcff';
+      roundRect(x + 86, y + 70, 82 * masteryFrac(i), 6, 3); ctx.fill();
+      if (!maxed) {
+        ctx.fillStyle = 'rgba(255,255,255,.4)';
+        ctx.font = '700 8px ui-rounded, system-ui, sans-serif';
+        ctx.fillText('Next +' + (3 + mlvl) + ' shards · ' + masteryNext(i) + ' uses', x + 86, y + 86);
+      }
     } else {
       ctx.fillStyle = 'rgba(255,255,255,.35)';
       ctx.font = '1000 15px ui-rounded, system-ui, sans-serif';

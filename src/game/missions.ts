@@ -2,7 +2,7 @@ import { state } from '../state';
 import { DROPIMALS, MAX_TIER } from '../data/dropimals';
 import { addFloater, burstConfetti } from './fx';
 import { sfxMission } from '../audio/audio';
-import { clamp } from '../utils/math';
+import { clamp, formatScore } from '../utils/math';
 import type { Mission } from '../types';
 
 export function makeMission(): Mission {
@@ -18,7 +18,7 @@ export function makeMission(): Mission {
       targetTier: tier,
       goal: 1,
       progress: 0,
-      reward: 40 + tier * 30,
+      reward: 400 + tier * 300,
     };
   }
 
@@ -29,7 +29,7 @@ export function makeMission(): Mission {
       text: 'Merge ' + goal + ' pairs',
       goal,
       progress: 0,
-      reward: 60 + goal * 8,
+      reward: 600 + goal * 80,
     };
   }
 
@@ -40,17 +40,17 @@ export function makeMission(): Mission {
       text: 'Hit a x' + goal + ' combo',
       goal,
       progress: 0,
-      reward: 70 + goal * 25,
+      reward: 700 + goal * 250,
     };
   }
 
-  const goal = Math.max(150, Math.floor((score + 220 + missionIndex * 110) / 50) * 50);
+  const goal = Math.max(1500, Math.floor((score + 2200 + missionIndex * 1100) / 500) * 500);
   return {
     type: 'score',
-    text: 'Reach ' + goal + ' points',
+    text: 'Reach ' + formatScore(goal) + ' points',
     goal,
     progress: score,
-    reward: 85 + missionIndex * 18,
+    reward: 850 + missionIndex * 180,
   };
 }
 
@@ -59,7 +59,7 @@ function completeMission(): void {
   state.score += state.mission.reward;
   state.missionsDone++;
   state.nudgeCharge = Math.min(1, state.nudgeCharge + 0.4);
-  addFloater('MISSION +' + state.mission.reward, 210, 200, '#fff6a8', 1.2, 28);
+  addFloater('MISSION +' + formatScore(state.mission.reward), 210, 200, '#fff6a8', 1.2, 28);
   burstConfetti(210, 160, 50);
   sfxMission();
   state.missionIndex++;

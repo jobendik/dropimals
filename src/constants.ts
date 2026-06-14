@@ -32,6 +32,9 @@ export const FEVER_COMBO = 5;
 export const FEVER_TIME = 8;
 export const OVERFLOW_GRACE = 1.8;
 export const NUDGE_PER_MERGE = 0.09;
+// Score milestones: every time the running score crosses a multiple of this,
+// the climb gets celebrated with a gold burst (and a CrazyGames happytime).
+export const MILESTONE_STEP = 25_000;
 // Seconds the one-time "second chance" rewarded-ad offer stays up before it
 // auto-declines and the run ends.
 export const CONTINUE_OFFER = 6;
@@ -45,7 +48,8 @@ export const BTN: Record<string, ButtonRect> = {
 
   // menu
   play:      { x: 110, y: 392, w: 200, h: 66 },
-  dex:       { x: 110, y: 478, w: 200, h: 52 },
+  dex:       { x: 110, y: 478, w: 96,  h: 52 },
+  rewards:   { x: 214, y: 478, w: 96,  h: 52 },
   soundMenu:      { x: 84,  y: 566, w: 48,  h: 48 },
   sfxSliderMenu:  { x: 146, y: 579, w: 170, h: 22 },
   musicMenu:      { x: 84,  y: 624, w: 48,  h: 48 },

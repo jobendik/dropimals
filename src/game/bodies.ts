@@ -2,9 +2,10 @@ import { state } from '../state';
 import { DROPIMALS, MAX_TIER, MAX_DROP_TIER } from '../data/dropimals';
 import {
   LEFT, RIGHT, DROP_Y, DANGER_Y, DROP_COOLDOWN, COMBO_WINDOW,
-  FEVER_COMBO, FEVER_TIME, OVERFLOW_GRACE, NUDGE_PER_MERGE, CONTINUE_OFFER,
+  FEVER_TIME, OVERFLOW_GRACE, NUDGE_PER_MERGE, CONTINUE_OFFER,
+  MILESTONE_STEP,
 } from '../constants';
-import { clamp } from '../utils/math';
+import { clamp, formatScore } from '../utils/math';
 import { addParticles, addFloater, burstConfetti, showBanner, haptic } from './fx';
 import {
   sfxDrop, sfxMerge, sfxNudge, sfxDiscovery, sfxFever, sfxNewBest,
@@ -12,6 +13,13 @@ import {
 } from '../audio/audio';
 import { updateMissionForMerge, makeMission } from './missions';
 import { touchDailyStreak, commitScore, saveProfile } from '../utils/storage';
+import { activeModifier } from '../meta/events';
+import { consumeCharge } from '../meta/economy';
+import { trackMerge, trackFever, trackNudge, trackDiscovery, trackDrop } from '../meta/progress';
+import { mergePalette } from '../meta/cosmetics';
+import { finalizeRun } from '../meta/runrewards';
+import { grantChest } from '../meta/chests';
+import { weekdayKey } from '../meta/time';
 import {
   cgGameplayStart, cgGameplayStop, cgHappyTime, cgMidgameAd, cgSubmitScore,
   cgRewardedAd, cgRewardedAvailable,
@@ -25,6 +33,15 @@ export function randomDropTier(): number {
   const weights: number[] = [10, 7, 4];
   if (bestTier >= 4) weights.push(2.5);
   if (bestTier >= 6) weights.push(1.5);
+
+  // "Lucky Drops" event / challenge boost: nudge the distribution toward the
+  // bigger animals in the pool.
+  const boost = activeModifier().dropBoost;
+  if (boost > 0 && weights.length > 1) {
+    for (let i = 0; i < weights.length; i++) {
+      weights[i] *= 1 + boost * 0.6 * (i / (weights.length - 1));
+    }
+  }
 
   const pick = (): number => {
     let total = 0;
@@ -51,7 +68,7 @@ export function randomDropTier(): number {
 let sessionRuns = 0;
 let runStarting = false;
 
-export async function startRun(): Promise<void> {
+export async function startRun(challenge = false): Promise<void> {
   if (runStarting) return; // guard against double-taps while an ad loads
   runStarting = true;
   try {
@@ -63,13 +80,27 @@ export async function startRun(): Promise<void> {
 
     resetGame();
     state.screen = 'play';
+    state.challengeRun = challenge;
     state.profile.games++;
     const newDay = touchDailyStreak();
+
+    // Bonus charge & first-run-of-day flags feed the reward pipeline.
+    state.runStats.charged = consumeCharge() ? 1 : 0;
+    state.runStats.firstOfDay = newDay ? 1 : 0;
+
+    // Weekly activity meter: mark today as played (doc §6 / §12).
+    const wd = weekdayKey();
+    if (!state.profile.activityDays.includes(wd)) state.profile.activityDays.push(wd);
+
+    if (challenge) state.profile.challengePlayed = true;
     saveProfile();
     cgGameplayStart();
     startMusic('game');
 
-    if (newDay && state.profile.streak >= 2) {
+    if (challenge) {
+      const m = activeModifier();
+      showBanner('DAILY CHALLENGE', m.name + ' · ' + m.desc, m.color, 2.6);
+    } else if (newDay && state.profile.streak >= 2) {
       // Daily comeback reward: head start on the nudge meter.
       state.nudgeCharge = Math.min(1, 0.25 + state.profile.streak * 0.15);
       showBanner('DAY ' + state.profile.streak + ' STREAK!', 'Nudge meter head start', '#8ffbff', 2.4);
@@ -90,6 +121,7 @@ export function resetGame(): void {
   state.score          = 0;
   state.displayScore   = 0;
   state.scorePulse     = 0;
+  state.scoreMilestone = 0;
   state.bestTier       = 0;
   state.merges         = 0;
   state.drops          = 0;
@@ -123,6 +155,9 @@ export function resetGame(): void {
   state.flash          = 0;
   state.hitstop        = 0;
   state.runDiscoveries = [];
+  state.runStats       = {};
+  state.runReward      = null;
+  state.challengeRun   = false;
 }
 
 export function createBody(x: number, y: number, tier: number): Body {
@@ -159,11 +194,12 @@ export function dropCurrent(): void {
 
   state.drops++;
   state.canDrop      = false;
-  state.dropCooldown = DROP_COOLDOWN;
+  state.dropCooldown = DROP_COOLDOWN * activeModifier().cooldownMult;
   state.swapUsed     = false;
 
   sfxDrop(state.currentTier);
   addParticles(x, DROP_Y, d.c1, 10, 0.5);
+  trackDrop(state.currentTier);
 }
 
 export function spawnNext(): void {
@@ -199,6 +235,7 @@ export function useNudge(): void {
   state.shockwaves.push({ x: 210, y: 420, r: 0, life: 0.65, age: 0, color: '#8ffbff' });
   sfxNudge();
   haptic(25);
+  trackNudge();
 }
 
 export function processMerges(): void {
@@ -242,32 +279,36 @@ function discover(tier: number): void {
   sfxDiscovery();
   cgHappyTime();
   state.flash = Math.max(state.flash, 0.35);
+  trackDiscovery();
 }
 
 function doMerge(m: { x: number; y: number; tier: number }): void {
   state.merges++;
   state.profile.totalMerges++;
+  const mod = activeModifier();
   state.combo      = state.comboTimer > 0 ? state.combo + 1 : 1;
-  state.comboTimer = COMBO_WINDOW;
+  state.comboTimer = COMBO_WINDOW * mod.comboWindowMult;
   state.maxCombo   = Math.max(state.maxCombo, state.combo);
   state.nudgeCharge = Math.min(1, state.nudgeCharge + NUDGE_PER_MERGE);
 
-  // Fever mode: chain enough merges and everything is worth double.
-  if (state.combo >= FEVER_COMBO && state.fever <= 0) {
-    state.fever = FEVER_TIME;
+  // Fever mode: chain enough merges and everything is worth double. The combo
+  // threshold and duration can be tuned by the active event/challenge modifier.
+  if (state.combo >= mod.feverCombo && state.fever <= 0) {
+    state.fever = FEVER_TIME * mod.feverTimeMult;
     showBanner('FEVER!', 'Double points — keep the chain alive!', '#ff8fd6', 2.0);
     sfxFever();
     cgHappyTime();
     state.flash = Math.max(state.flash, 0.3);
+    trackFever();
   }
 
   const feverMult = state.fever > 0 ? 2 : 1;
 
   if (m.tier >= MAX_TIER) {
     // Two Luna Whales merge into pure points — the legendary pop.
-    const bonus = Math.floor(3000 * (1 + Math.min(8, state.combo - 1) * 0.22)) * feverMult;
+    const bonus = Math.floor(30000 * (1 + Math.min(8, state.combo - 1) * 0.22)) * feverMult;
     state.score += bonus;
-    addFloater('LEGENDARY POP +' + bonus, m.x, m.y - 18, '#fff6a8', 1.3, 26);
+    addFloater('LEGENDARY POP +' + formatScore(bonus), m.x, m.y - 18, '#fff6a8', 1.3, 26);
     addParticles(m.x, m.y, '#ffffff', 90, 2.0);
     burstConfetti(m.x, m.y, 90);
     state.shockwaves.push({ x: m.x, y: m.y, r: 0, life: 0.8, age: 0, color: '#fff6a8' });
@@ -277,6 +318,7 @@ function doMerge(m: { x: number; y: number; tier: number }): void {
     state.shake = 14;
     state.hitstop = Math.max(state.hitstop, 0.1);
     haptic(40);
+    trackMerge(MAX_TIER);
     return;
   }
 
@@ -297,11 +339,15 @@ function doMerge(m: { x: number; y: number; tier: number }): void {
   nb.squash = 0.55; // pop-in overshoot
   state.bodies.push(nb);
 
-  addParticles(m.x, m.y, nd.c1, 22 + next * 4, 1 + next * 0.08);
-  state.shockwaves.push({ x: m.x, y: m.y, r: 0, life: 0.48 + next * 0.025, age: 0, color: nd.c1 });
+  const pal = mergePalette();
+  const burstColor = pal ? pal[next % pal.length] : nd.c1;
+  addParticles(m.x, m.y, burstColor, 22 + next * 4, 1 + next * 0.08);
+  state.shockwaves.push({ x: m.x, y: m.y, r: 0, life: 0.48 + next * 0.025, age: 0, color: burstColor });
 
   const comboText = state.combo >= 2 ? '  x' + state.combo : '';
-  addFloater('+' + earned + comboText, m.x, m.y - nd.r * 0.45, state.fever > 0 ? '#ff8fd6' : '#ffffff', 0.8, 22);
+  // Bigger merges throw bigger numbers — the floater grows with the tier.
+  const floatSize = 22 + Math.min(16, next * 1.7);
+  addFloater('+' + formatScore(earned) + comboText, m.x, m.y - nd.r * 0.45, state.fever > 0 ? '#ff8fd6' : '#ffffff', 0.85, floatSize);
   if (next >= 4) addFloater(nd.name + '!', m.x, m.y + nd.r * 0.15, nd.c1, 0.9, 18);
 
   if (next >= 5) {
@@ -315,7 +361,7 @@ function doMerge(m: { x: number; y: number; tier: number }): void {
   // Crossing your all-time best mid-run deserves a moment.
   if (!state.newBestShown && state.prevBest > 0 && state.score > state.prevBest) {
     state.newBestShown = true;
-    showBanner('NEW BEST!', 'You beat ' + state.prevBest + ' points', '#fff6a8', 2.2);
+    showBanner('NEW BEST!', 'You beat ' + formatScore(state.prevBest) + ' points', '#fff6a8', 2.2);
     burstConfetti(210, 220, 60);
     sfxNewBest();
     cgHappyTime();
@@ -324,6 +370,28 @@ function doMerge(m: { x: number; y: number; tier: number }): void {
   discover(next);
   updateMissionForMerge(next);
   sfxMerge(next, state.combo);
+  trackMerge(next);
+}
+
+/**
+ * Celebrate every big round number the score crosses. Making the climb itself
+ * an event — gold burst, chime, and a CrazyGames happytime — turns "watch the
+ * number go up" into the reward it should be. Called each frame during play.
+ */
+export function checkScoreMilestone(): void {
+  const reached = Math.floor(state.score / MILESTONE_STEP);
+  if (reached <= state.scoreMilestone) return;
+  state.scoreMilestone = reached;
+
+  const value = reached * MILESTONE_STEP;
+  addFloater(formatScore(value) + '!', 210, 250, '#fff6a8', 1.3, 36);
+  burstConfetti(210, 232, 48);
+  state.scorePulse = 1;
+  state.flash = Math.max(state.flash, 0.16);
+  state.shockwaves.push({ x: 210, y: 250, r: 0, life: 0.6, age: 0, color: '#fff6a8' });
+  sfxNewBest();
+  cgHappyTime();
+  haptic(18);
 }
 
 export function checkOverflow(dt: number): void {
@@ -485,9 +553,22 @@ export function updateCascade(dt: number): void {
     state.overPanelReady = true;
     state.screen = 'over';
     if (state.cascadeBonus > 0) {
-      addFloater('CLEAR BONUS +' + state.cascadeBonus, 210, 320, '#fff6a8', 1.4, 24);
+      addFloater('CLEAR BONUS +' + formatScore(state.cascadeBonus), 210, 320, '#fff6a8', 1.4, 24);
     }
     commitScore();
+
+    // Daily Challenge: record the day's best and hand out a one-per-day chest.
+    if (state.challengeRun) {
+      if (state.score > state.profile.challengeScore) state.profile.challengeScore = state.score;
+      if (state.profile.challengeRewardDay !== state.profile.challengeDay) {
+        state.profile.challengeRewardDay = state.profile.challengeDay;
+        grantChest('challenge');
+      }
+    }
+
+    // The full retention reward pipeline — XP, coins, season, medals, chest, etc.
+    finalizeRun();
+
     cgGameplayStop();
     cgSubmitScore(state.score); // final score, including the cascade bonus
     return;
@@ -503,7 +584,7 @@ export function updateCascade(dt: number): void {
   state.cascadeBonus += pts;
   state.score += pts;
   addParticles(b.x, b.y, DROPIMALS[b.tier].c1, 10 + b.tier * 3, 0.7 + b.tier * 0.1);
-  addFloater('+' + pts, b.x, b.y, '#ffffff', 0.55, 15);
+  addFloater('+' + formatScore(pts), b.x, b.y, '#ffffff', 0.55, 15);
   sfxCascadePop(cascadeStep++);
 
   state.cascadeTimer = clamp(0.5 / Math.max(6, state.bodies.length), 0.045, 0.09);

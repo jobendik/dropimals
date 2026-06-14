@@ -1,7 +1,8 @@
 import type {
   Body, Particle, Floater, Shockwave, ConfettiPiece, Bubble,
-  Mission, Screen, Profile, Banner,
+  Mission, Screen, Profile, Banner, Toast, RunReward, Overlay,
 } from './types';
+import { defaultProfile } from './meta/profile';
 
 export interface GameState {
   screen: Screen;
@@ -18,6 +19,8 @@ export interface GameState {
   /** Animated score shown in the HUD; chases `score`. */
   displayScore: number;
   scorePulse: number;
+  /** Highest milestone (multiple of MILESTONE_STEP) already celebrated this run. */
+  scoreMilestone: number;
   bestTier: number;
   merges: number;
   drops: number;
@@ -67,6 +70,29 @@ export interface GameState {
   /** Tiers discovered during the current run (for end screen). */
   runDiscoveries: number[];
 
+  /** CrazyGames signed-in player name, for a personalised greeting. null = guest. */
+  cgUsername: string | null;
+
+  // ── Retention / meta runtime (transient) ──
+  /** Non-blocking notifications queued at the top of the screen. */
+  toasts: Toast[];
+  /** Per-run counters that feed medals & objectives. */
+  runStats: Record<string, number>;
+  /** Summary of what the just-finished run earned; null until a run ends. */
+  runReward: RunReward | null;
+  /** Active celebration overlay (level-up / chest), shown one at a time. */
+  overlay: Overlay | null;
+  /** Overlays waiting their turn behind `overlay`. */
+  overlayQueue: Overlay[];
+  /** Which tab the Rewards hub is showing. */
+  hubTab: 'orders' | 'season' | 'collection' | 'shop' | 'stats';
+  /** Scroll offset within the active hub tab. */
+  hubScroll: number;
+  /** Today's rotating event id (gameplay modifier). */
+  eventId: string;
+  /** True while the current run is the seeded Daily Challenge. */
+  challengeRun: boolean;
+
   DPR: number;
   viewW: number;
   viewH: number;
@@ -94,6 +120,7 @@ export const state: GameState = {
   score: 0,
   displayScore: 0,
   scorePulse: 0,
+  scoreMilestone: 0,
   bestTier: 0,
   merges: 0,
   drops: 0,
@@ -134,20 +161,20 @@ export const state: GameState = {
   hitstop: 0,
   time: 0,
 
-  profile: {
-    highScore: 0,
-    discovered: new Array(10).fill(false),
-    streak: 0,
-    lastDay: '',
-    games: 0,
-    totalMerges: 0,
-    biggestTier: 0,
-    muted: false,
-    musicMuted: false,
-    sfxVolume: 1,
-    musicVolume: 0.3,
-  },
+  profile: defaultProfile(),
   runDiscoveries: [],
+
+  cgUsername: null,
+
+  toasts: [],
+  runStats: {},
+  runReward: null,
+  overlay: null,
+  overlayQueue: [],
+  hubTab: 'orders',
+  hubScroll: 0,
+  eventId: '',
+  challengeRun: false,
 
   DPR: 1,
   viewW: 0,

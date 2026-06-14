@@ -66,8 +66,8 @@ await page.mouse.click(x, y);
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/5-menu-again.png` });
 
-// Dropidex
-[x, y] = px(210, 504); // dex button (110,478,200x52)
+// Dropidex (button is now 110,478,96x52 — REWARDS sits to its right)
+[x, y] = px(158, 504);
 await page.mouse.click(x, y);
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/6-dex.png` });

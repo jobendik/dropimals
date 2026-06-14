@@ -4,8 +4,15 @@
 //
 // Docs: https://docs.crazygames.com/sdk/intro/
 
+interface CrazyUser {
+  username?: string;
+  profilePictureUrl?: string;
+}
+
 interface CrazySDK {
   init(): Promise<void>;
+  /** v3 exposes the environment as a synchronous property: local|crazygames|disabled. */
+  environment?: 'local' | 'crazygames' | 'disabled';
   game: {
     loadingStart(): void;
     loadingStop(): void;
@@ -22,9 +29,16 @@ interface CrazySDK {
         adError?: (e: unknown) => void;
       },
     ): void;
+    hasAdblock?(): Promise<boolean>;
   };
   user?: {
-    submitScore?(payload: { encryptedScore: string }): Promise<unknown> | unknown;
+    // v3: `isUserAccountAvailable` is a PROPERTY, not a method.
+    isUserAccountAvailable?: boolean;
+    getUser?(): Promise<CrazyUser | null>;
+    addAuthListener?(cb: (user: CrazyUser | null) => void): void;
+    // submitScore requires BOTH the encrypted score and the plain number, or the
+    // backend rejects the submission.
+    submitScore?(payload: { encryptedScore: string; score: number }): Promise<unknown> | unknown;
   };
   data?: {
     getItem(key: string): string | null;
@@ -40,6 +54,8 @@ function sdk(): CrazySDK | null {
 }
 
 let ready = false;
+let adblockDetected = false;
+let onUserChange: ((name: string | null) => void) | null = null;
 
 // ── Init / loading lifecycle ─────────────────────────────────────────────────
 
@@ -47,20 +63,39 @@ export async function cgInit(): Promise<void> {
   const s = sdk();
   if (!s) return;
   try {
-    // The SDK is unusable until init() resolves, and every other game.* call
-    // errors before that — so init first. Never let a hung SDK brick the game.
+    // The SDK is unusable until init() resolves, and every other call errors
+    // before that — so init first. Never let a hung SDK brick the game.
     await Promise.race([
       s.init(),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('CrazyGames init timeout')), 4000)),
     ]);
+    // On a "disabled" domain (self-hosting elsewhere) every SDK call throws, so
+    // treat that as not-ready and run the universal no-op path.
+    if (s.environment === 'disabled') { ready = false; return; }
     ready = true;
     // Now report our (near-instant) asset-prep window; cgLoadingStop() closes it
     // once the game is ready to render.
     s.game.loadingStart();
+
+    // Probe adblock once so the revive offer never shows a button that can't pay
+    // out (a rewarded ad behind an adblocker only ever errors).
+    try { adblockDetected = (await s.ad?.hasAdblock?.()) ?? false; } catch { /* assume none */ }
+
+    // Wire up account info for a personalised greeting, now and on sign-in.
+    try {
+      const apply = (u: CrazyUser | null): void => onUserChange?.(u?.username ?? null);
+      s.user?.getUser?.().then(apply).catch(() => { /* signed out */ });
+      s.user?.addAuthListener?.(apply);
+    } catch { /* user module unavailable */ }
   } catch {
     ready = false;
   }
+}
+
+/** Register a callback for the signed-in player's name (null when signed out). */
+export function setUserChangeHook(cb: (name: string | null) => void): void {
+  onUserChange = cb;
 }
 
 /** Close the loading bracket opened in cgInit, once the game can render. */
@@ -145,9 +180,13 @@ export function cgRewardedAd(): Promise<boolean> {
   return runAd('rewarded');
 }
 
-/** Whether a rewarded ad could plausibly be shown (SDK live with an ad module). */
+/**
+ * Whether a rewarded ad could plausibly fill (SDK live, ad module present, and
+ * no adblocker). Used to decide whether to even offer the second-chance revive —
+ * offering a "watch ad" button that can only error is worse than not offering it.
+ */
 export function cgRewardedAvailable(): boolean {
-  return ready && !!sdk()?.ad?.requestAd;
+  return ready && !adblockDetected && !!sdk()?.ad?.requestAd;
 }
 
 // ── Leaderboards ─────────────────────────────────────────────────────────────
@@ -181,7 +220,9 @@ export async function cgSubmitScore(score: number): Promise<void> {
   if (!ready || !s?.user?.submitScore || score <= 0) return;
   try {
     const encryptedScore = await encryptScore(score);
-    await s.user.submitScore({ encryptedScore });
+    // Both fields are required — the backend validates the plain score against
+    // the encrypted one and rejects the submission if either is missing.
+    await s.user.submitScore({ encryptedScore, score });
   } catch { /* ignore */ }
 }
 

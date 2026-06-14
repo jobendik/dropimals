@@ -6,6 +6,8 @@ import { dropCurrent, useNudge, startRun, swapNext, acceptContinue, declineConti
 import { sfxClick, toggleMute, toggleMusic, startMusic, setSfxVolume, setMusicVolume } from '../audio/audio';
 import { commitScore } from '../utils/storage';
 import { cgGameplayStart, cgGameplayStop } from '../platform/crazygames';
+import { advanceOverlay } from '../meta/notify';
+import { handleRewardsClick } from '../render/rewards';
 import type { ButtonRect } from '../types';
 
 let aiming = false;
@@ -76,8 +78,11 @@ function quitToMenu(): void {
 function onPointerDown(e: PointerEvent): void {
   const p = toGame(e.clientX, e.clientY);
   // Boot audio on first gesture; keep game music for any in-run screen.
-  startMusic(state.screen === 'menu' || state.screen === 'dex' ? 'menu' : 'game');
+  startMusic(state.screen === 'menu' || state.screen === 'dex' || state.screen === 'rewards' ? 'menu' : 'game');
   downOnButton = false;
+
+  // A celebration overlay (level-up / chest) eats the next tap to advance.
+  if (state.overlay) { sfxClick(); advanceOverlay(); downOnButton = true; return; }
 
   // Any press on a non-play screen must not leak into the play screen as a
   // drop when the pointer is released (e.g. tapping PLAY).
@@ -86,6 +91,7 @@ function onPointerDown(e: PointerEvent): void {
       downOnButton = true;
       if (hit(p, BTN.play)) { sfxClick(); startRun(); }
       else if (hit(p, BTN.dex)) { sfxClick(); state.screen = 'dex'; }
+      else if (hit(p, BTN.rewards)) { sfxClick(); state.hubTab = 'orders'; state.screen = 'rewards'; }
       else if (hit(p, BTN.soundMenu)) { sfxClick(); toggleMute(); }
       else if (hit(p, BTN.sfxSliderMenu)) beginSliderDrag('sfx', BTN.sfxSliderMenu, p.x);
       else if (hit(p, BTN.musicMenu)) { sfxClick(); toggleMusic(); }
@@ -95,6 +101,11 @@ function onPointerDown(e: PointerEvent): void {
     case 'dex':
       downOnButton = true;
       if (hit(p, BTN.dexBack)) { sfxClick(); state.screen = 'menu'; }
+      return;
+
+    case 'rewards':
+      downOnButton = true;
+      handleRewardsClick(p);
       return;
 
     case 'paused':
@@ -165,6 +176,8 @@ function onKeyDown(e: KeyboardEvent): void {
     else if (e.key === 'Escape' || e.key === 'p') pauseGame();
   } else if (state.screen === 'paused' && (e.key === 'Escape' || e.key === 'p')) {
     resumeGame();
+  } else if (state.screen === 'rewards' && (e.key === 'Escape' || e.key === 'p')) {
+    state.screen = 'menu';
   } else if (state.screen === 'menu' && (e.key === ' ' || e.key === 'Enter')) {
     startRun();
   } else if (state.screen === 'over' && state.overPanelReady && (e.key === ' ' || e.key === 'Enter')) {

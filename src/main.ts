@@ -6,13 +6,15 @@ import { initCanvas, canvas, resize } from './render/canvas';
 import { draw } from './render/renderer';
 import { initInput } from './input/input';
 import { loadProfile } from './utils/storage';
-import { spawnNext, checkOverflow, processMerges, updateCascade, updateContinueOffer } from './game/bodies';
+import { spawnNext, checkOverflow, processMerges, updateCascade, updateContinueOffer, checkScoreMilestone } from './game/bodies';
 import { collideWalls, solveCircleCollisions } from './game/physics';
 import { updateFX } from './game/fx';
 import { updateMissionForScore } from './game/missions';
 import { updateBubbles } from './render/background';
 import { sfxWarning, muteForAd, unmuteAfterAd } from './audio/audio';
-import { cgInit, cgLoadingStop, setAdAudioHooks } from './platform/crazygames';
+import { cgInit, cgLoadingStop, setAdAudioHooks, setUserChangeHook } from './platform/crazygames';
+import { updateToasts } from './meta/notify';
+import { runDailyMaintenance } from './meta/daily';
 
 let warnBeep = 0;
 
@@ -22,6 +24,8 @@ function step(dt: number): void {
   // Always-on cosmetic systems
   updateBubbles(dt);
   updateFX(dt);
+  updateToasts(dt);
+  if (state.overlay) state.overlay.age += dt;
   if (state.shake > 0) state.shake = Math.max(0, state.shake - 55 * dt);
   if (state.flash > 0) state.flash = Math.max(0, state.flash - 2.2 * dt);
   if (state.scorePulse > 0) state.scorePulse = Math.max(0, state.scorePulse - 4 * dt);
@@ -106,6 +110,7 @@ function step(dt: number): void {
   processMerges();
   checkOverflow(dt);
   updateMissionForScore();
+  checkScoreMilestone();
 }
 
 function frame(now: number): void {
@@ -131,6 +136,7 @@ function frame(now: number): void {
 async function boot(): Promise<void> {
   initCanvas();
   setAdAudioHooks(muteForAd, unmuteAfterAd);
+  setUserChangeHook((name) => { state.cgUsername = name; });
 
   // Bring up the CrazyGames SDK (which shows its loading splash) before reading
   // saved data, so cloud-synced progress is available from the very first frame.
@@ -138,6 +144,7 @@ async function boot(): Promise<void> {
   await cgInit();
 
   loadProfile();
+  runDailyMaintenance();
   resize();
   initInput(canvas);
   window.addEventListener('resize', resize);

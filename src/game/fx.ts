@@ -1,4 +1,5 @@
 import { state } from '../state';
+import { victoryPalette } from '../meta/cosmetics';
 import type { Banner } from '../types';
 
 export function updateFX(dt: number): void {
@@ -41,6 +42,7 @@ export function updateFX(dt: number): void {
 }
 
 export function addParticles(x: number, y: number, color: string, count: number, power: number): void {
+  if (state.profile.reducedMotion) count = Math.ceil(count * 0.4);
   for (let i = 0; i < count; i++) {
     const a  = Math.random() * Math.PI * 2;
     const sp = (80 + Math.random() * 230) * power;
@@ -62,7 +64,9 @@ export function addFloater(text: string, x: number, y: number, color: string, li
 }
 
 export function burstConfetti(x: number, y: number, count: number): void {
-  const colors = ['#66f7ff', '#ff8fd6', '#fff06a', '#9dff74', '#b28cff', '#ffffff'];
+  if (state.profile.reducedMotion) count = Math.ceil(count * 0.4);
+  // The equipped victory effect recolours every celebration burst.
+  const colors = victoryPalette() ?? ['#66f7ff', '#ff8fd6', '#fff06a', '#9dff74', '#b28cff', '#ffffff'];
   for (let i = 0; i < count; i++) {
     const a  = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.5;
     const sp = 90 + Math.random() * 320;

@@ -1,13 +1,15 @@
 import { ctx, roundRect } from './canvas';
 import { state } from '../state';
 import { GW, GH, LEFT, RIGHT, FLOOR, DANGER_Y, OVERFLOW_GRACE } from '../constants';
-import { clamp } from '../utils/math';
+import { clamp, darken } from '../utils/math';
+import { equippedBg } from '../meta/cosmetics';
 
 // The static parts of the scene (outer vignette, panel gradient, jar walls,
 // floor plate) are cached to an offscreen canvas and re-rendered on resize.
 // Per-frame we draw the cached image plus the cheap animated layers.
 
 let bgCanvas: HTMLCanvasElement | null = null;
+let builtBg = '';
 
 export function clearBackgroundCache(): void {
   bgCanvas = null;
@@ -21,11 +23,13 @@ function buildBackground(): HTMLCanvasElement {
   const s = cv.getContext('2d') as CanvasRenderingContext2D;
   s.scale(q, q);
 
-  // Panel gradient
+  // Panel gradient — themed by the equipped background cosmetic.
+  const { c1, c2 } = equippedBg();
+  builtBg = state.profile.equipped.bg;
   const bg = s.createLinearGradient(0, 0, 0, GH);
-  bg.addColorStop(0,    '#2b2566');
-  bg.addColorStop(0.42, '#1a1d47');
-  bg.addColorStop(1,    '#0a1025');
+  bg.addColorStop(0,    c1);
+  bg.addColorStop(0.55, c2);
+  bg.addColorStop(1,    darken(c2, 14));
   s.fillStyle = bg;
   s.fillRect(0, 0, GW, GH);
 
@@ -66,7 +70,8 @@ export function drawOuterBackground(): void {
 }
 
 export function drawGameBackground(): void {
-  if (!bgCanvas) bgCanvas = buildBackground();
+  // Rebuild the cached panel when the equipped background changes.
+  if (!bgCanvas || builtBg !== state.profile.equipped.bg) bgCanvas = buildBackground();
   ctx.drawImage(bgCanvas, 0, 0, GW, GH);
 
   // Fever tint

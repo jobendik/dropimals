@@ -20,6 +20,16 @@ export function format(n: number): string {
   return (n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0) + 'M';
 }
 
+/**
+ * Full score with thousands separators — "47,250", never "47.2K".
+ * Seeing every digit climb is the whole dopamine of a merge game, so scores are
+ * always shown in full; `format()` (K/M) is kept only for incidental labels.
+ */
+export function formatScore(n: number): string {
+  n = Math.floor(Math.max(0, n));
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 export function lighten(hex: string, amount: number): string {
   const n = parseInt(hex.slice(1), 16);
   let r = (n >> 16) + amount;

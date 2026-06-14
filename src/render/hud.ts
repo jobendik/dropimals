@@ -2,7 +2,8 @@ import { ctx, roundRect } from './canvas';
 import { state } from '../state';
 import { DROPIMALS, MAX_TIER } from '../data/dropimals';
 import { BTN, GW, COMBO_WINDOW, FEVER_TIME } from '../constants';
-import { format, clamp } from '../utils/math';
+import { formatScore, clamp } from '../utils/math';
+import { frameColor } from '../meta/cosmetics';
 import { drawDropimalIcon } from './animals';
 import { getMissionProgress } from '../game/missions';
 import type { ButtonRect } from '../types';
@@ -118,8 +119,22 @@ export function drawHUD(): void {
   ctx.fillRect(pb.x + 15, pb.y + 13, 5, 18);
   ctx.fillRect(pb.x + 25, pb.y + 13, 5, 18);
 
+  // Score frame cosmetic — a coloured plate behind the score readout.
+  const fc = frameColor();
+  if (fc) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    roundRect(60, 18, 152, 54, 14);
+    ctx.fill();
+    ctx.strokeStyle = fc;
+    ctx.lineWidth = 2;
+    roundRect(60, 18, 152, 54, 14);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Score
-  const pulse = 1 + state.scorePulse * 0.18;
+  const pulse = 1 + state.scorePulse * 0.22;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgba(255,255,255,.55)';
@@ -127,17 +142,33 @@ export function drawHUD(): void {
   ctx.fillText('SCORE', 72, 30);
   ctx.fillText('BEST', 212, 30);
 
+  // Full score, no K-suffix. Shrink to fit so even seven-figure runs stay in
+  // their column — the whole point is to watch every digit climb.
+  const scoreText = formatScore(state.displayScore);
+  const SCORE_MAX_W = 132;
   ctx.save();
   ctx.translate(72, 62);
   ctx.scale(pulse, pulse);
-  ctx.fillStyle = state.fever > 0 ? '#ff8fd6' : '#fff6a8';
   ctx.font = '1000 30px ui-rounded, system-ui, sans-serif';
-  ctx.fillText(format(Math.floor(state.displayScore)), 0, 0);
+  const fit = Math.min(1, SCORE_MAX_W / Math.max(1, ctx.measureText(scoreText).width));
+  ctx.scale(fit, fit);
+  // A gold glow pulses up on every gain, so the rising number reads as a win.
+  if (state.scorePulse > 0.02) {
+    ctx.shadowColor = state.fever > 0 ? '#ff8fd6' : '#ffd86a';
+    ctx.shadowBlur = 18 * state.scorePulse;
+  }
+  ctx.fillStyle = state.fever > 0 ? '#ff8fd6' : '#fff6a8';
+  ctx.fillText(scoreText, 0, 0);
   ctx.restore();
 
-  ctx.fillStyle = '#8ffbff';
+  const bestText = formatScore(Math.max(state.profile.highScore, state.score));
+  ctx.save();
+  ctx.translate(212, 56);
   ctx.font = '1000 19px ui-rounded, system-ui, sans-serif';
-  ctx.fillText(format(Math.max(state.profile.highScore, state.score)), 212, 56);
+  ctx.scale(Math.min(1, 100 / Math.max(1, ctx.measureText(bestText).width)), 1);
+  ctx.fillStyle = '#8ffbff';
+  ctx.fillText(bestText, 0, 0);
+  ctx.restore();
 
   // Nudge meter mini-bar under best
   ctx.fillStyle = 'rgba(255,255,255,.12)';

@@ -68,7 +68,7 @@ export function drawFloaters(): void {
 export function drawFlash(): void {
   if (state.flash <= 0) return;
   ctx.save();
-  ctx.globalAlpha = Math.min(0.55, state.flash);
+  ctx.globalAlpha = Math.min(0.55, state.flash) * (state.profile.reducedMotion ? 0.4 : 1);
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, GW, GH);
   ctx.restore();

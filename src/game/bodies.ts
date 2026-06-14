@@ -330,8 +330,22 @@ export function checkOverflow(dt: number): void {
   let overflowing = false;
 
   for (const b of state.bodies) {
-    const speed = Math.hypot(b.vx, b.vy);
-    if (b.age > 1.1 && b.y - b.r < DANGER_Y && speed < 42) {
+    // A body counts as overflow if its top is above the line and it is NOT the
+    // piece currently dropping in from above. Everything else above the line is
+    // genuinely stuck there — and "stuck" includes jostling: on a live, packed
+    // board the top pieces are constantly shoved by new drops and merges, so
+    // their vy swings around. Earlier, tight "is it settled" gates
+    // (`speed < 42`, or a narrow vy window) flickered on/off every frame, and
+    // because dangerTime decays at 1.8x it never reached the grace — the box
+    // could be visibly overflowing yet the run never ended.
+    //
+    // So exclude only the two transient, legitimate above-line cases:
+    //   • the in-flight drop free-falling through the zone → large +vy (~380)
+    //   • a piece just spawned this instant (drop / merge)  → age < 0.35
+    // A fast collapse momentarily reads >200 and is skipped that frame, but a
+    // truly stuck piece slows below 200 and accumulates. Result: any piece that
+    // lingers above the line for the grace ends the run, jitter and all.
+    if (b.y - b.r < DANGER_Y && b.age > 0.35 && b.vy < 200) {
       overflowing = true;
       break;
     }

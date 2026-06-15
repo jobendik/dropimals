@@ -26,13 +26,17 @@ Copy-paste these into the developer portal.
 > ⭐ Daily streaks, missions & a global leaderboard
 > 🎮 One-button simple — drop with a click or tap
 
-**Genre:** Puzzle
-**Tags:** `merge`, `puzzle`, `casual`, `physics`, `relaxing`, `cute`, `animals`,
-`idle`, `2048`, `suika`, `high-score`, `one-button`, `family`
+**Category:** Puzzle
 
-**Controls (for the listing's controls field):**
-- **Mouse / Touch:** Move to aim, click or tap to drop. Tap the NEXT panel to swap.
-- **Keyboard:** ←/→ or A/D to aim · Space/↓ to drop · W/↑ to swap · N to nudge · P to pause
+**Tags (portal tag picker — MAX 5; it has no Merge/2048/Suika/Casual/Cute tag):**
+`Physics`, `Animal`, `Relaxing`, `Brain`, `Match 3`
+Swap `Match 3` for `Skill` or `Collect` if you want a strictly literal tag. Do
+**not** use `Idle` — Dropimals isn't an idle game.
+
+**Controls — paste as PLAIN text. The portal field does NOT render markdown, so
+do not include the `**` asterisks (they'd show literally):**
+- Mouse / Touch: Move to aim, click or tap to drop. Tap the NEXT panel to swap.
+- Keyboard: ←/→ or A/D to aim · Space/↓/S to drop · W/↑ to swap · N to nudge · P or Esc to pause
 
 **Orientation:** Portrait (works on desktop letterboxed, and mobile portrait).
 **Mobile-friendly:** Yes — initial download is well under the 20 MB mobile cap.

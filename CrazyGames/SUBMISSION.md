@@ -81,17 +81,20 @@ Aim with the mouse or finger and click/tap to drop. Keyboard: arrows or A/D to a
 Puzzle
 ```
 
-## Tags
-Select these from the portal's tag picker (all are existing CrazyGames tags).
-Listed best-first — if the portal caps the number of tags, keep the top ones.
+## Tags  (the portal caps you at MAX 5)
+The developer-portal **tag** picker is a granular list, separate from the Category
+above. It has **no** Merge, 2048, Suika, Casual, Cute, Puzzle or Arcade tag — so
+pick the best 5 from what actually exists:
 
 ```
-Merge, Puzzle, Casual, Physics, 2048, Relaxing, Cute, Animal, Idle, One Button, Brain, Mouse, Arcade
+Physics, Animal, Relaxing, Brain, Match 3
 ```
 
-> Note: "Suika", "high score" and "family" are **not** CrazyGames tags, so they
-> were intentionally left out. "Animal" is the correct tag (singular), and the
-> drop-mechanic tag is "One Button".
+- **Physics · Animal · Relaxing · Brain** — accurate and on-theme.
+- **Match 3** — the closest "match-and-combine" tag (there is no Merge/Suika tag);
+  it pulls the adjacent casual-puzzle audience. Want a strictly literal tag instead?
+  Swap it for **Skill** (high-score skill) or **Collect** (fits the Dropidex).
+- Do **not** use **Idle** — Dropimals needs active play; it isn't an idle game.
 
 ## Orientation
 ```

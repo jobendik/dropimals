@@ -46,10 +46,11 @@ export const BTN: Record<string, ButtonRect> = {
   nudge:     { x: 312, y: 666, w: 84,  h: 46 },
   nextPanel: { x: 314, y: 12,  w: 92,  h: 92 },
 
-  // menu
-  play:      { x: 110, y: 392, w: 200, h: 66 },
-  dex:       { x: 110, y: 478, w: 96,  h: 52 },
-  rewards:   { x: 214, y: 478, w: 96,  h: 52 },
+  // menu — PLAY is the oversized hero CTA; DEX/REWARDS share a calmer secondary
+  // row aligned to the same width so the eye reads "one big action, two options".
+  play:      { x: 84,  y: 368, w: 252, h: 80 },
+  dex:       { x: 84,  y: 474, w: 120, h: 52 },
+  rewards:   { x: 216, y: 474, w: 120, h: 52 },
   soundMenu:      { x: 84,  y: 566, w: 48,  h: 48 },
   sfxSliderMenu:  { x: 146, y: 579, w: 170, h: 22 },
   musicMenu:      { x: 84,  y: 624, w: 48,  h: 48 },

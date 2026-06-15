@@ -130,7 +130,16 @@ export function drawBanner(): void {
 export function drawMenu(): void {
   ctx.save();
 
-  drawTopBar();
+  const p = state.profile;
+  // First-time players (never started a run) get a deliberately minimal menu —
+  // logo, tagline and the PLAY hero. The progression dashboard (level/XP,
+  // currencies, best, Dropidex, rewards, bonus charge) only appears once they've
+  // played a game, so a brand-new CrazyGames visitor isn't met with a wall of
+  // zeroes. Input gating in input.ts mirrors this so hidden buttons aren't
+  // phantom-clickable.
+  const firstTime = p.games === 0;
+
+  if (!firstTime) drawTopBar();
 
   // Decorative floating animals
   const decor: Array<[number, number, number, number]> = [
@@ -175,46 +184,99 @@ export function drawMenu(): void {
   if (state.cgUsername) {
     ctx.fillStyle = '#8ffbff';
     ctx.font = '900 13px ui-rounded, system-ui, sans-serif';
-    ctx.fillText('Welcome back, ' + state.cgUsername + '!', GW / 2, 130);
+    ctx.fillText((firstTime ? 'Welcome, ' : 'Welcome back, ') + state.cgUsername + '!', GW / 2, 130);
   }
 
-  // Best + streak chips
-  const p = state.profile;
-  let chips = 'BEST  ' + formatScore(p.highScore);
-  if (p.streak >= 2) chips += '      DAY ' + p.streak + ' STREAK';
-  ctx.fillStyle = 'rgba(0,0,0,.30)';
-  roundRect(GW / 2 - 130, 308, 260, 36, 18);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,.14)';
-  ctx.stroke();
-  ctx.fillStyle = '#fff6a8';
-  ctx.font = '900 14px ui-rounded, system-ui, sans-serif';
-  ctx.fillText(chips, GW / 2, 331);
-
-  // Buttons
-  const playPulse = 1 + Math.sin(state.time * 4) * 0.02;
-  const pb = BTN.play;
-  ctx.save();
-  ctx.translate(pb.x + pb.w / 2, pb.y + pb.h / 2);
-  ctx.scale(playPulse, playPulse);
-  ctx.translate(-(pb.x + pb.w / 2), -(pb.y + pb.h / 2));
-  drawButton(pb, 'PLAY', { primary: true, fontSize: 24 });
-  ctx.restore();
-
-  const found = p.discovered.filter(Boolean).length;
-  drawButton(BTN.dex, `DEX ${found}/${MAX_TIER + 1}`, { fontSize: 13 });
-  drawButton(BTN.rewards, 'REWARDS', { fontSize: 14, primary: true });
-  drawBadge(BTN.rewards.x + BTN.rewards.w - 8, BTN.rewards.y + 6,
-    totalClaimable() + claimableSeason() + claimableAchievements());
-
-  // Bonus-charge pips: full at day start, each charged run gives bonus XP.
+  // Returning players see their best + streak; first-timers get a one-line nudge
+  // about the core mechanic instead of a meaningless "BEST 0" plate.
   ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,.5)';
-  ctx.font = '800 10px ui-rounded, system-ui, sans-serif';
-  ctx.fillText('BONUS CHARGE', GW / 2 - 30, 552);
-  for (let i = 0; i < MAX_CHARGE; i++) {
-    ctx.fillStyle = i < p.charge ? '#fff6a8' : 'rgba(255,255,255,.18)';
-    ctx.beginPath(); ctx.arc(GW / 2 + 26 + i * 16, 548, 5, 0, Math.PI * 2); ctx.fill();
+  if (!firstTime) {
+    let chips = 'BEST  ' + formatScore(p.highScore);
+    if (p.streak >= 2) chips += '      DAY ' + p.streak + ' STREAK';
+    ctx.fillStyle = 'rgba(0,0,0,.30)';
+    roundRect(GW / 2 - 130, 308, 260, 36, 18);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.14)';
+    ctx.stroke();
+    ctx.fillStyle = '#fff6a8';
+    ctx.font = '900 14px ui-rounded, system-ui, sans-serif';
+    ctx.fillText(chips, GW / 2, 331);
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,.62)';
+    ctx.font = '800 14px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('Match two of the same to evolve!', GW / 2, 331);
+  }
+
+  // ── PLAY: the hero CTA ──
+  // The ONE glowing, pulsing, primary-coloured action on the screen, with a ▶
+  // icon so it reads as "start" in any language. Everything else here is calmer
+  // (secondary styling, no glow) so a first-time CrazyGames player can't miss it.
+  const pb = BTN.play;
+  const cx = pb.x + pb.w / 2;
+  const cy = pb.y + pb.h / 2;
+  const calm = state.profile.reducedMotion;
+  const beat = calm ? 0 : Math.sin(state.time * 3.4);
+  const pulse = 1 + beat * 0.025;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(pulse, pulse);
+  ctx.translate(-cx, -cy);
+
+  const pg = ctx.createLinearGradient(pb.x, pb.y, pb.x + pb.w, pb.y + pb.h);
+  pg.addColorStop(0, '#66f7ff');
+  pg.addColorStop(0.5, '#8d7aff');
+  pg.addColorStop(1, '#ff8fd6');
+  if (!calm) {
+    ctx.shadowColor = 'rgba(125,225,255,.75)';
+    ctx.shadowBlur = 26 + (beat + 1) * 7;
+  }
+  ctx.fillStyle = pg;
+  roundRect(pb.x, pb.y, pb.w, pb.h, 24);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.strokeStyle = 'rgba(255,255,255,.55)';
+  ctx.lineWidth = 2;
+  roundRect(pb.x, pb.y, pb.w, pb.h, 24);
+  ctx.stroke();
+
+  // ▶ glyph + label, centred together as one group.
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = '1000 32px ui-rounded, system-ui, sans-serif';
+  const label = 'PLAY';
+  const tw = ctx.measureText(label).width;
+  const iconW = 24, gap = 16;
+  const startX = cx - (iconW + gap + tw) / 2;
+  ctx.beginPath();
+  ctx.moveTo(startX, cy - 13);
+  ctx.lineTo(startX, cy + 13);
+  ctx.lineTo(startX + iconW, cy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillText(label, startX + iconW + gap, cy + 1);
+  ctx.restore();
+  ctx.textBaseline = 'alphabetic';
+
+  // ── Secondary row + bonus charge: returning players only ──
+  if (!firstTime) {
+    const found = p.discovered.filter(Boolean).length;
+    drawButton(BTN.dex, `DEX ${found}/${MAX_TIER + 1}`, { fontSize: 14 });
+    drawButton(BTN.rewards, 'REWARDS', { fontSize: 14 });
+    drawBadge(BTN.rewards.x + BTN.rewards.w - 8, BTN.rewards.y + 6,
+      totalClaimable() + claimableSeason() + claimableAchievements());
+
+    // Bonus-charge pips: full at day start, each charged run gives bonus XP.
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.font = '800 10px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('BONUS CHARGE', GW / 2 - 30, 552);
+    for (let i = 0; i < MAX_CHARGE; i++) {
+      ctx.fillStyle = i < p.charge ? '#fff6a8' : 'rgba(255,255,255,.18)';
+      ctx.beginPath(); ctx.arc(GW / 2 + 26 + i * 16, 548, 5, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   drawToggle(BTN.soundMenu, 'SFX', !p.muted);

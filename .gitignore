@@ -7,3 +7,7 @@ dist-crazygames/
 # Raw sound-effect source library (2.6 GB) — not shipped; chosen clips are
 # processed into public/audio/sfx/.
 INSPIRATION_FX/
+
+# 34 MB master backup of the portrait capture — kept locally, not worth committing.
+# The optimized Dropimals_portrait_video.mp4 is the deliverable.
+CrazyGames/Dropimals_portrait_video.original.mp4

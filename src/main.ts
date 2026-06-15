@@ -11,8 +11,8 @@ import { collideWalls, solveCircleCollisions } from './game/physics';
 import { updateFX } from './game/fx';
 import { updateMissionForScore } from './game/missions';
 import { updateBubbles } from './render/background';
-import { sfxWarning, muteForAd, unmuteAfterAd } from './audio/audio';
-import { cgInit, cgLoadingStop, setAdAudioHooks, setUserChangeHook } from './platform/crazygames';
+import { sfxWarning, muteForAd, unmuteAfterAd, setPlatformMute } from './audio/audio';
+import { cgInit, cgLoadingStop, setAdAudioHooks, setUserChangeHook, setMuteAudioHook } from './platform/crazygames';
 import { updateToasts } from './meta/notify';
 import { runDailyMaintenance } from './meta/daily';
 
@@ -136,6 +136,7 @@ function frame(now: number): void {
 async function boot(): Promise<void> {
   initCanvas();
   setAdAudioHooks(muteForAd, unmuteAfterAd);
+  setMuteAudioHook(setPlatformMute);
   setUserChangeHook((name) => { state.cgUsername = name; });
 
   // Bring up the CrazyGames SDK (which shows its loading splash) before reading

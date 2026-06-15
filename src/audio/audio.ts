@@ -21,7 +21,9 @@ function getCtx(): AudioContext | null {
         || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       state.audioCtx = new AC();
       master = state.audioCtx.createGain();
-      master.gain.value = 1;
+      // Master is the global duck bus: silenced while an ad plays or while the
+      // CrazyGames platform requests mute (settings.muteAudio).
+      master.gain.value = adDucked || platformMuted ? 0 : 1;
       master.connect(state.audioCtx.destination);
 
       sfxBus = state.audioCtx.createGain();
@@ -361,27 +363,49 @@ export function stopMusic(): void {
   currentTrack = null;
 }
 
-// ── Ad audio handling ───────────────────────────────────────────────────────
-// CrazyGames requires the game to be silent while an ad plays. We duck the
-// master gain to zero (covers all SFX) and pause the music element, then
-// restore both — respecting the player's existing mute preference.
+// ── Ad & platform audio muting ──────────────────────────────────────────────
+// The master bus is silenced whenever EITHER an ad is playing OR the CrazyGames
+// platform requests mute via SDK.game.settings.muteAudio. The two compose
+// through applyMasterGain() so neither overrides the other, and the player's own
+// per-channel mute still applies on top (it lives on sfxBus/musicGain).
+//
+// The music element's play/pause lifecycle is owned by the ad path and
+// startMusic/stopMusic; a platform mute only ducks the master gain, so it can
+// never strand the music in a paused state.
 
 let adMusicTrack: 'menu' | 'game' | null = null;
+let adDucked = false;
+let platformMuted = false;
+
+function applyMasterGain(): void {
+  if (master && state.audioCtx) {
+    master.gain.setValueAtTime(adDucked || platformMuted ? 0 : 1, state.audioCtx.currentTime);
+  }
+}
 
 export function muteForAd(): void {
+  adDucked = true;
   adMusicTrack = currentTrack;
   menuEl?.pause();
   gameEl?.pause();
-  if (master && state.audioCtx) master.gain.setValueAtTime(0, state.audioCtx.currentTime);
+  applyMasterGain();
 }
 
 export function unmuteAfterAd(): void {
-  // Master is just the ad-duck bus now; per-channel mute lives on sfxBus/musicGain.
-  if (master && state.audioCtx) {
-    master.gain.setValueAtTime(1, state.audioCtx.currentTime);
-  }
-  // Resume whichever track was playing when the ad interrupted.
+  adDucked = false;
+  applyMasterGain(); // stays silent if the platform is still muting us
+  // Resume whichever track was playing when the ad interrupted. The master gain
+  // keeps it inaudible if platformMuted is still set, so this is always safe.
   const el = adMusicTrack === 'menu' ? menuEl : adMusicTrack === 'game' ? gameEl : null;
   el?.play().catch(() => { /* will retry on next gesture */ });
   adMusicTrack = null;
+}
+
+/**
+ * Honour the CrazyGames platform mute toggle (SDK.game.settings.muteAudio).
+ * Ducks/undocks the master bus only — composing with the ad duck above.
+ */
+export function setPlatformMute(muted: boolean): void {
+  platformMuted = muted;
+  applyMasterGain();
 }

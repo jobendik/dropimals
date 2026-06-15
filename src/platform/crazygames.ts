@@ -19,6 +19,10 @@ interface CrazySDK {
     gameplayStart(): void;
     gameplayStop(): void;
     happytime(): void;
+    // v3 exposes platform settings (e.g. the site's mute toggle) as a property,
+    // with a listener fired whenever they change.
+    settings?: { muteAudio?: boolean };
+    addSettingsChangeListener?(cb: (settings: { muteAudio?: boolean }) => void): void;
   };
   ad?: {
     requestAd(
@@ -56,6 +60,7 @@ function sdk(): CrazySDK | null {
 let ready = false;
 let adblockDetected = false;
 let onUserChange: ((name: string | null) => void) | null = null;
+let onMuteChange: ((muted: boolean) => void) | null = null;
 
 // ── Init / loading lifecycle ─────────────────────────────────────────────────
 
@@ -88,6 +93,14 @@ export async function cgInit(): Promise<void> {
       s.user?.getUser?.().then(apply).catch(() => { /* signed out */ });
       s.user?.addAuthListener?.(apply);
     } catch { /* user module unavailable */ }
+
+    // Respect the CrazyGames platform mute toggle (the player can mute the game
+    // from the site's UI). Apply the current value, then react to changes.
+    try {
+      onMuteChange?.(!!s.game.settings?.muteAudio);
+      s.game.addSettingsChangeListener?.((settings) =>
+        onMuteChange?.(!!(settings?.muteAudio ?? s.game.settings?.muteAudio)));
+    } catch { /* settings module unavailable */ }
   } catch {
     ready = false;
   }
@@ -96,6 +109,14 @@ export async function cgInit(): Promise<void> {
 /** Register a callback for the signed-in player's name (null when signed out). */
 export function setUserChangeHook(cb: (name: string | null) => void): void {
   onUserChange = cb;
+}
+
+/**
+ * Register a callback for the CrazyGames platform mute state. Wired from main.ts
+ * (instead of importing the audio module here) to avoid a dependency cycle.
+ */
+export function setMuteAudioHook(cb: (muted: boolean) => void): void {
+  onMuteChange = cb;
 }
 
 /** Close the loading bracket opened in cgInit, once the game can render. */

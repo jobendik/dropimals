@@ -87,16 +87,20 @@ function onPointerDown(e: PointerEvent): void {
   // Any press on a non-play screen must not leak into the play screen as a
   // drop when the pointer is released (e.g. tapping PLAY).
   switch (state.screen) {
-    case 'menu':
+    case 'menu': {
       downOnButton = true;
+      // First-timers see a minimal menu (drawMenu hides DEX/REWARDS until they've
+      // played once), so don't let taps in those empty regions navigate anywhere.
+      const isFirst = state.profile.games === 0;
       if (hit(p, BTN.play)) { sfxClick(); startRun(); }
-      else if (hit(p, BTN.dex)) { sfxClick(); state.screen = 'dex'; }
-      else if (hit(p, BTN.rewards)) { sfxClick(); state.hubTab = 'orders'; state.screen = 'rewards'; }
+      else if (!isFirst && hit(p, BTN.dex)) { sfxClick(); state.screen = 'dex'; }
+      else if (!isFirst && hit(p, BTN.rewards)) { sfxClick(); state.hubTab = 'orders'; state.screen = 'rewards'; }
       else if (hit(p, BTN.soundMenu)) { sfxClick(); toggleMute(); }
       else if (hit(p, BTN.sfxSliderMenu)) beginSliderDrag('sfx', BTN.sfxSliderMenu, p.x);
       else if (hit(p, BTN.musicMenu)) { sfxClick(); toggleMusic(); }
       else if (hit(p, BTN.musicSliderMenu)) beginSliderDrag('music', BTN.musicSliderMenu, p.x);
       return;
+    }
 
     case 'dex':
       downOnButton = true;
